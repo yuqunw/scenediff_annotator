@@ -1,6 +1,12 @@
+"""
+SAM2 Video Segmentation Backend
+
+Flask-based backend server for interactive video segmentation using SAM2.
+Supports video upload, annotation, propagation, and review workflows.
+"""
+
 import os
 import sys
-import uuid
 import json
 import pickle
 import subprocess
@@ -8,75 +14,83 @@ import threading
 import tempfile
 import shutil
 import queue
+import base64
+import io
+import time
+import re
+from datetime import datetime, timedelta
+
 import numpy as np
 import torch
 import cv2
+import pandas as pd
+import requests
+import psutil
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from werkzeug.utils import secure_filename
 from PIL import Image
 import matplotlib.pyplot as plt
-import base64
-import io
-import time
 from matplotlib.colors import to_rgb
 import matplotlib.colors as mcolors
-import re
-from datetime import datetime, timedelta
-import psutil
 
-import subprocess
-import pandas as pd
-import requests
-
-# Global queue for offline processing
-offline_queue = queue.Queue()
-
-propagation_process = None
-propagation_status = {
-    "running": False,
-    "current_object": None,
-    "progress": 0
-}
-
-
-# Add these at the VERY TOP before any other imports
+# PyTorch optimization flags
 os.environ["TORCHINDUCTOR_FX_GRAPH_CACHE"] = "1"
-os.environ["TORCHDYNAMO_DISABLE_CUDAGRAPHS"] = "1"  # New critical flag
+os.environ["TORCHDYNAMO_DISABLE_CUDAGRAPHS"] = "1"
 
-# # Disable problematic CUDA graph features
-# os.environ["TORCHINDUCTOR_FX_GRAPH_CACHE"] = "1"  # Enable graph caching
-# torch._inductor.config.triton.cudagraph_trees = False
-# torch._inductor.config.triton.cudagraphs = False  # New in 2.6.0
-
-# Add parent directory to path for imports
+# Add SAM2 to path
 sys.path.append("./sam2")
-sam2_dir = "./sam2"
+SAM2_DIR = "./sam2"
 
-# Import SAM2 classes
+# Import SAM2
 try:
     from sam2.build_sam import build_sam2_video_predictor
 except ImportError:
     print("Error: Unable to import sam2 module. Make sure it's in your PYTHONPATH.")
     sys.exit(1)
 
+# Constants
+DEFAULT_FPS = 30
+DEFAULT_FRAME_QUALITY = 2  # FFmpeg quality parameter (1-31, lower is better)
+SESSION_TIMEOUT_SECONDS = 1800  # 30 minutes
+CLEANUP_CHECK_INTERVAL = 300  # 5 minutes
+MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB
+SAM2_CHECKPOINT = os.path.join(SAM2_DIR, "checkpoints/sam2.1_hiera_large.pt")
+MODEL_CONFIG = "configs/sam2.1/sam2.1_hiera_l.yaml"
+GOOGLE_SPREADSHEET_ID = "1h0D54fn1ZkdUgBaA63Nm4vvGWtpG7uA2JJo7nmaZ4aU"
+SUPPORTED_VIDEO_FORMATS = (".mp4", ".mov", ".avi", ".MP4", ".MOV", ".AVI")
+SUPPORTED_IMAGE_FORMATS = (".jpg", ".jpeg")
+
+# Global variables
+offline_queue = queue.Queue()
+propagation_process = None
+propagation_status = {
+    "running": False,
+    "current_object": None,
+    "progress": 0
+}
+sessions = {}
+device = None
+predictor = None
+session_last_active = {}  # Track when sessions were last accessed
+
+# Flask application setup
 app = Flask(__name__, static_folder='static')
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['RESULTS_FOLDER'] = 'results'
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB max upload size
+app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_SIZE
 
 # Create necessary directories
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['RESULTS_FOLDER'], exist_ok=True)
 
-# Global variables
-sessions = {}
-device = None
-predictor = None
-SESSION_TIMEOUT_SECONDS = 1800  # 30 minutes timeout
-session_last_active = {}  # Track when sessions were last accessed
 
-# Initialize SAM2 model
 def initialize_model():
+    """
+    Initialize the SAM2 model for video segmentation.
+    
+    Automatically selects the best available device (CUDA, MPS, or CPU)
+    and configures device-specific optimizations.
+    """
     global device, predictor
     
     # Select device for computation
@@ -90,31 +104,47 @@ def initialize_model():
     
     # Configure device-specific settings
     if device.type == "cuda":
-        # Use bfloat16 for CUDA - removed individual context manager
         torch.set_float32_matmul_precision('high')
-        # Turn on tfloat32 for Ampere GPUs
+        # Enable TF32 for Ampere GPUs (compute capability >= 8.0)
         if torch.cuda.get_device_properties(0).major >= 8:
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
     elif device.type == "mps":
-        print("\nSupport for MPS devices is preliminary. SAM2 might give different results on MPS.")
+        print("Note: MPS support is preliminary. Results may vary from CUDA.")
     
     # Load SAM2 model
-    sam2_checkpoint = os.path.join(sam2_dir, "checkpoints/sam2.1_hiera_large.pt")
-    model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
-    
-    print(f"Loading SAM2 model from {sam2_checkpoint}...")
+    print(f"Loading SAM2 model from {SAM2_CHECKPOINT}...")
     predictor = build_sam2_video_predictor(
-        model_cfg,
-        sam2_checkpoint,
+        MODEL_CONFIG,
+        SAM2_CHECKPOINT,
         device=device,
-        vos_optimized=False,  # Keep SAM2's native optimizations
+        vos_optimized=False,
     )
     print("SAM2 model loaded successfully")
 
-# Helper functions for mask processing
+
+def print_gpu_memory_usage():
+    """Print current GPU memory usage for debugging."""
+    if torch.cuda.is_available():
+        current_device = torch.cuda.current_device()
+        allocated = torch.cuda.memory_allocated(current_device) / (1024 * 1024)
+        cached = torch.cuda.memory_reserved(current_device) / (1024 * 1024)
+        print(f"GPU Memory: {allocated:.2f} MB allocated, {cached:.2f} MB cached")
+    else:
+        print("CUDA not available")
+
+
+# Mask processing utilities
 def mask_to_rle_pytorch(tensor: torch.Tensor):
-    """Encodes masks to an uncompressed RLE format"""
+    """
+    Encode binary masks to uncompressed RLE (Run-Length Encoding) format.
+    
+    Args:
+        tensor: Binary mask tensor of shape (batch, height, width)
+        
+    Returns:
+        List of dictionaries containing RLE encoding for each mask
+    """
     b, h, w = tensor.shape
     tensor = tensor.permute(0, 2, 1).flatten(1)
     
@@ -138,15 +168,33 @@ def mask_to_rle_pytorch(tensor: torch.Tensor):
     return out
 
 def coco_encode_rle(uncompressed_rle):
-    """Converts uncompressed RLE to COCO format"""
+    """
+    Convert uncompressed RLE to COCO format.
+    
+    Args:
+        uncompressed_rle: Dictionary with 'size' and 'counts' keys
+        
+    Returns:
+        COCO-formatted RLE dictionary
+    """
     from pycocotools import mask as mask_utils
     h, w = uncompressed_rle["size"]
     rle = mask_utils.frPyObjects(uncompressed_rle, h, w)
     rle["counts"] = rle["counts"].decode("utf-8")
     return rle
 
+
 def mask_to_base64_image(mask, obj_id=None):
-    """Convert mask to base64 encoded PNG for web display"""
+    """
+    Convert binary mask to base64-encoded PNG for web display.
+    
+    Args:
+        mask: Binary mask array
+        obj_id: Object ID for consistent coloring (default: 0)
+        
+    Returns:
+        Base64-encoded PNG image string
+    """
     # Create a colormap
     cmap = plt.get_cmap("tab10")
     colors = list(cmap.colors)  # This creates a list copy we can modify
@@ -176,8 +224,20 @@ def mask_to_base64_image(mask, obj_id=None):
     img_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
     return f"data:image/png;base64,{img_str}"
 
-def save_video_segments(session_id, video_idx, video_segments, fps=30, output_suffix=""):
-    """Create video with segmentation masks overlaid"""
+def save_video_segments(session_id, video_idx, video_segments, fps=DEFAULT_FPS, output_suffix=""):
+    """
+    Create video with segmentation masks overlaid on original frames.
+    
+    Args:
+        session_id: Session identifier
+        video_idx: Index of the video (1 or 2)
+        video_segments: Dictionary mapping frame indices to object masks
+        fps: Frames per second for output video
+        output_suffix: Optional suffix for output filename
+        
+    Returns:
+        Path to saved video file
+    """
     session = sessions[session_id]
     frame_names = session[f'video{video_idx}_frame_names']
     video_dir = session[f'video{video_idx}_dir']
@@ -251,13 +311,22 @@ def save_video_segments(session_id, video_idx, video_segments, fps=30, output_su
     return output_path
 
 def process_video_to_frames(video_path, output_dir):
-    """Process video into individual frames using ffmpeg"""
+    """
+    Extract individual frames from video using ffmpeg.
+    
+    Args:
+        video_path: Path to input video file
+        output_dir: Directory to save extracted frames
+        
+    Returns:
+        True if successful, False otherwise
+    """
     os.makedirs(output_dir, exist_ok=True)
     cmd = [
         'ffmpeg', 
         '-i', video_path, 
-        '-q:v', '2', 
-        '-r', '30', 
+        '-q:v', str(DEFAULT_FRAME_QUALITY), 
+        '-r', str(DEFAULT_FPS), 
         '-start_number', '0',
         os.path.join(output_dir, '%05d.jpg')
     ]
@@ -268,50 +337,24 @@ def process_video_to_frames(video_path, output_dir):
     except subprocess.CalledProcessError as e:
         print(f"Error processing video: {e}")
         return False
-    
-
-
-def extract_video_frames(video_path, output_dir=None):
-    """
-    Extract frames from a video using FFmpeg
-    
-    Args:
-    - video_path: Path to input video
-    - output_dir: Directory to save frames (optional)
-    
-    Returns:
-    - Path to directory with extracted frames
-    """
-    # Create a temporary directory if not provided
-    if output_dir is None:
-        output_dir = tempfile.mkdtemp(prefix='video_frames_')
-    
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Extract frames using FFmpeg
-    subprocess.run([
-        'ffmpeg',
-        '-i', video_path,
-        '-q:v', '2',  # High-quality frames
-        '-start_number', '0',
-        os.path.join(output_dir, '%05d.jpg')
-    ], check=True)
-    
-    return output_dir
 
 
 
-# Flask routes
+# ============================================================================
+# Flask Routes
+# ============================================================================
+
 @app.route('/')
 def index():
+    """Serve the main annotation interface."""
     return render_template('index.html')
+
 
 @app.route('/start_offline_propagation', methods=['POST'])
 def start_offline_propagation():
+    """Start offline segmentation propagation process."""
     global propagation_process, propagation_status
     
-    # Check if a process is already running
     if propagation_status["running"]:
         return jsonify({
             "success": False, 
@@ -373,6 +416,7 @@ def start_offline_propagation():
 
 @app.route('/cancel_offline_propagation', methods=['POST'])
 def cancel_offline_propagation():
+    """Cancel the currently running offline propagation process."""
     global propagation_process, propagation_status
     
     if not propagation_status["running"]:
@@ -403,11 +447,24 @@ def cancel_offline_propagation():
 
 @app.route('/check_offline_propagation_status')
 def check_offline_propagation_status():
+    """Get the current status of offline propagation process."""
     global propagation_status
     return jsonify(propagation_status)
 
+
 @app.route('/upload_videos', methods=['POST'])
 def upload_videos():
+    """
+    Handle video upload and initialize annotation session.
+    
+    Expects:
+        - video1: First video file
+        - video2: Second video file
+        - scene_type: Description of the scene
+        
+    Returns:
+        Session ID and video metadata
+    """
     if 'video1' not in request.files or 'video2' not in request.files:
         return jsonify({'error': 'Both videos must be provided'}), 400
     
@@ -508,6 +565,7 @@ def upload_videos():
 
 @app.route('/set_object_config', methods=['POST'])
 def set_object_config():
+    """Store object configuration for a session."""
     data = request.json
     session_id = data.get('session_id')
     object_configs = data.get('object_configs', [])
@@ -520,8 +578,10 @@ def set_object_config():
     
     return jsonify({'success': True})
 
+
 @app.route('/get_frame', methods=['GET'])
 def get_frame():
+    """Retrieve a specific frame from a video."""
     session_id = request.args.get('session_id')
     video_idx = int(request.args.get('video_idx', 1))
     frame_idx = int(request.args.get('frame_idx', 0))
@@ -552,9 +612,9 @@ def get_frame():
         'frame_idx': frame_idx
     })
 
-# In backend.py, update the set_object_frame route
 @app.route('/set_object_frame', methods=['POST'])
 def set_object_frame():
+    """Set the frame index for a specific object in a video."""
     data = request.json
     session_id = data.get('session_id')
     video_idx = int(data.get('video_idx', 1))
@@ -596,6 +656,7 @@ def set_object_frame():
 
 @app.route('/process_clicks', methods=['POST'])
 def process_clicks():
+    """Process user clicks to generate segmentation masks using SAM2."""
     data = request.json
     session_id = data.get('session_id')
     video_idx = int(data.get('video_idx', 1))
@@ -656,29 +717,29 @@ def process_clicks():
 
 @app.route('/complete_object', methods=['POST'])
 def complete_object():
+    """Mark an object as completed for a specific video."""
     data = request.json
     session_id = data.get('session_id')
     video_idx = int(data.get('video_idx', 1))
     obj_idx = int(data.get('obj_idx', 0))
-    original_obj_idx = int(data.get('original_obj_idx', 0))
     
     if session_id not in sessions:
         return jsonify({'error': 'Invalid session ID'}), 400
     
     session = sessions[session_id]
-    
-    # Mark object as completed for this video
     session[f'video{video_idx}_completed_objects'].add(obj_idx)
     
-    return jsonify({
-        'success': True
-    })
+    return jsonify({'success': True})
 
-# Compression for the saved videos 
 
 @app.route('/finish_annotation', methods=['POST'])
 def finish_annotation():
-    """Finish the annotation process and generate final results"""
+    """
+    Finish the annotation process and save inference data.
+    
+    For new annotations: Saves inference data for offline propagation
+    For reannotations: Updates existing inference data with new annotations
+    """
     data = request.json
     session_id = data.get('session_id')
     is_reannotation = data.get('is_reannotation', False)
@@ -1054,9 +1115,13 @@ def cleanup_session():
         print(f"Error during cleanup: {str(e)}")
         return jsonify({'error': f'Error during cleanup: {str(e)}'}), 500
 
-# Add a helper function to clear inference state tensors
 def clear_inference_state(inference_state):
-    """Free memory used by tensors in inference state"""
+    """
+    Recursively free memory used by tensors in inference state.
+    
+    Args:
+        inference_state: Dictionary or nested structure containing tensors
+    """
     if inference_state is None:
         return
         
@@ -1079,14 +1144,13 @@ def clear_inference_state(inference_state):
 
 @app.route('/get_objects_data', methods=['GET'])
 def get_objects_data():
+    """Get object configuration data for a session."""
     session_id = request.args.get('session_id')
     
     if not session_id or session_id not in sessions:
         return jsonify({'error': 'Invalid session ID'}), 400
     
     session = sessions[session_id]
-    
-    # Prepare object data for review
     objects_data = []
     
     for i, obj_config in enumerate(session['object_configs']):
@@ -1153,6 +1217,7 @@ def get_objects_data():
 
 @app.route('/save_comments', methods=['POST'])
 def save_comments():
+    """Save reviewer comments for a session."""
     data = request.json
     session_id = data.get('session_id')
     comments = data.get('comments', {})
@@ -1164,45 +1229,37 @@ def save_comments():
     session['comments'] = comments
     return jsonify({'success': True})
 
-# Add this function somewhere near the top of your file
-def print_gpu_memory_usage():
-    """Print current GPU memory usage for debugging"""
-    if torch.cuda.is_available():
-        current_device = torch.cuda.current_device()
-        allocated = torch.cuda.memory_allocated(current_device) / (1024 * 1024)  # MB
-        cached = torch.cuda.memory_reserved(current_device) / (1024 * 1024)      # MB
-        print(f"GPU Memory: {allocated:.2f} MB allocated, {cached:.2f} MB cached")
-    else:
-        print("CUDA not available")
 
-# Add these routes to your backend.py file
-
-# Add these routes to your backend.py file
-
-# @app.route('/test')
-# def test_page():
-#     return render_template('test.html')
-
-
+# ============================================================================
+# Review Interface Routes
+# ============================================================================
 
 @app.route('/review')
 def review_dashboard():
-    """Serve the review dashboard page"""
+    """Serve the review dashboard page."""
     return render_template('review.html')
+
 
 @app.route('/review/session/<session_id>')
 def review_session(session_id):
-    """Serve the review session page for a specific session"""
+    """Serve the review session page for a specific session."""
     return render_template('review_session.html')
+
 
 @app.route('/review/upload')
 def upload_review():
-    """Serve the upload for review page"""
+    """Serve the upload for review page."""
     return render_template('upload_review.html')
+
 
 @app.route('/api/sessions')
 def get_sessions():
-    """Get a list of all available sessions for review"""
+    """
+    Get a list of all available sessions for review.
+    
+    Scans both standard results and offline processing folders
+    for completed segmentation sessions.
+    """
     valid_sessions = []
     
     # Get absolute path to the application directory
@@ -1283,10 +1340,10 @@ def get_sessions():
     
     return jsonify(valid_sessions)
 
-# debug route to be deleted
+
 @app.route('/debug/check_session/<session_id>')
 def debug_check_session(session_id):
-    """Debug endpoint to check if a session exists"""
+    """Debug endpoint to check if a session exists."""
     folders_to_check = [
         app.config['RESULTS_FOLDER'],
         'results_offline_processing'
@@ -1311,7 +1368,11 @@ def debug_check_session(session_id):
 
 @app.route('/api/sessions/<session_id>')
 def get_session_data(session_id):
-    """Get data for a specific session"""
+    """
+    Get detailed data for a specific session.
+    
+    Returns session metadata, video URLs, object data, and review information.
+    """
     print(f"Fetching session data for: {session_id}")  # Debug log
     
     # Check both folders for the session
@@ -1548,7 +1609,11 @@ def debug_session(session_id):
 
 @app.route('/api/reviews', methods=['POST'])
 def submit_review():
-    """Submit a review for a session"""
+    """
+    Submit a review for a session.
+    
+    Saves review metadata including object reviews and reannotation flags.
+    """
     data = request.json
     
     # Validate required fields
@@ -1592,7 +1657,12 @@ def submit_review():
     
 @app.route('/api/upload-review', methods=['POST'])
 def upload_for_review():
-    """Upload segmented videos and data for review"""
+    """
+    Upload segmented videos and data for review.
+    
+    Accepts video files and pickled segmentation data,
+    stores them in the results folder for review.
+    """
     try:
         session_id = request.form.get('session_id')
         video1 = request.files.get('video1')
@@ -1650,56 +1720,16 @@ def upload_for_review():
         print(f"Error in upload_for_review: {e}")
         return jsonify({'error': str(e)}), 500
 
-# @app.route('/api/upload-review', methods=['POST'])
-# def upload_for_review():
-#     """Upload segmented videos and data for review"""
-#     if 'video1' not in request.files or 'video2' not in request.files or 'data' not in request.files:
-#         return jsonify({'error': 'Missing required files'}), 400
-    
-#     session_id = request.form.get('session_id')
-#     if not session_id:
-#         return jsonify({'error': 'Session ID is required'}), 400
-    
-#     # Clean session ID to be directory-safe
-#     session_id = secure_filename(session_id)
-    
-#     # Create session directory in the standard results folder
-#     session_path = os.path.join(app.config['RESULTS_FOLDER'], session_id)
-#     os.makedirs(session_path, exist_ok=True)
-    
-#     # Save video 1
-#     video1_file = request.files['video1']
-#     video1_path = os.path.join(session_path, 'video1.mp4')
-#     video1_file.save(video1_path)
-    
-#     # Save video 2
-#     video2_file = request.files['video2']
-#     video2_path = os.path.join(session_path, 'video2.mp4')
-#     video2_file.save(video2_path)
-    
-#     # Save data file
-#     data_file = request.files['data']
-#     data_path = os.path.join(session_path, 'segments.pkl')
-#     data_file.save(data_path)
-    
-#     return jsonify({
-#         'success': True,
-#         'session_id': session_id
-#     })
-
-# Add this route to serve files from the results_offline_processing folder
 
 @app.route('/results_offline/<path:filename>')
 def results_offline(filename):
-    """Serve files from offline results folder"""
-    # The folder name should match your actual folder structure
+    """Serve files from offline results folder."""
     return send_from_directory('results_offline_processing', filename)
 
 
-# to be able to delete a session from review dashboartd
 @app.route('/api/sessions/<session_id>', methods=['DELETE'])
 def delete_session(session_id):
-    """Delete a session"""
+    """Delete a session from the results folder."""
     # Check both folders
     folders_to_check = [
         app.config['RESULTS_FOLDER'],
@@ -1726,9 +1756,28 @@ def delete_session(session_id):
     
 
 
-# Add this function to start a background thread for session cleanup
+# ============================================================================
+# Session Management and Cleanup
+# ============================================================================
+
+def update_session_activity(session_id):
+    """
+    Update timestamp of when a session was last active.
+    
+    Args:
+        session_id: Session identifier to update
+    """
+    if session_id:
+        session_last_active[session_id] = datetime.now()
+
+
 def start_cleanup_thread():
-    """Start a background thread to clean up inactive sessions"""
+    """
+    Start a background thread to automatically clean up inactive sessions.
+    
+    Monitors session activity and removes sessions that have been
+    inactive for longer than SESSION_TIMEOUT_SECONDS.
+    """
     def cleanup_worker():
         while True:
             try:
@@ -1790,18 +1839,19 @@ def start_cleanup_thread():
     thread.start()
     print("Started session cleanup background thread")
 
-# Add this function to track session activity in each route that uses session_id
-def update_session_activity(session_id):
-    """Update timestamp of when a session was last active"""
-    if session_id:
-        session_last_active[session_id] = datetime.now()
 
-# Initialize the model when starting the server
-initialize_model()
+# ============================================================================
+# Reannotation Routes
+# ============================================================================
 
 @app.route('/api/start_reannotation', methods=['POST'])
 def start_reannotation():
-    """Start the reannotation process for selected objects"""
+    """
+    Start the reannotation process for selected objects.
+    
+    Initializes a new session for reannotating specific objects
+    that were flagged during review.
+    """
     data = request.json
     session_id = data.get('session_id')
     reannotation_config = data.get('reannotation_config', [])
@@ -1943,6 +1993,7 @@ def start_reannotation():
 
 @app.route('/api/session_objects/<session_id>')
 def get_session_objects(session_id):
+    """Retrieve object data for a specific session from stored files."""
     try:
         session_dir = os.path.join(app.config['RESULTS_FOLDER'], session_id)
         if not os.path.exists(session_dir):
@@ -1989,7 +2040,7 @@ def get_session_objects(session_id):
 
 @app.route('/cleanup_gpu_memory', methods=['POST'])
 def cleanup_gpu_memory():
-    """Endpoint to explicitly clean GPU memory"""
+    """Explicitly clean GPU memory cache."""
     try:
         # Clear any cached models or temporary tensors
         if torch.cuda.is_available():
@@ -2008,7 +2059,7 @@ def cleanup_gpu_memory():
 
 @app.route('/restart_server', methods=['POST'])
 def restart_server():
-    """Restart the Flask server"""
+    """Restart the Flask server (for maintenance purposes)."""
     try:
         # Get the current Python executable path and script path
         python_path = sys.executable
@@ -2036,8 +2087,10 @@ def restart_server():
 @app.route('/api/get_objects_from_csv', methods=['GET'])
 def get_objects_from_csv():
     """
-    Read objects from the CSV file and find the matching row
-    Returns only essential object information
+    Read objects from the CSV file and find the matching row for a session.
+    
+    Parses the objects database CSV to automatically populate object
+    configurations based on video names.
     """
     try:
         # Get the current session ID from query parameters
@@ -2146,16 +2199,16 @@ def get_objects_from_csv():
 
 @app.route('/download_object_database', methods=['POST'])
 def download_object_database():
-    """Download the Google Spreadsheet and save it as objects.csv"""
+    """
+    Download the object database from Google Spreadsheet.
+    
+    Fetches the latest version of the objects CSV from Google Sheets
+    and saves it locally for automatic object configuration.
+    """
     try:
-        # Google Spreadsheet ID from the URL
-        spreadsheet_id = "1h0D54fn1ZkdUgBaA63Nm4vvGWtpG7uA2JJo7nmaZ4aU"
-        
-        # GID of the sheet to download (0 is the first sheet)
+        # Google Spreadsheet configuration
         gid = "0"
-        
-        # URL to download the sheet as CSV
-        download_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv&gid={gid}"
+        download_url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SPREADSHEET_ID}/export?format=csv&gid={gid}"
         
         print(f"Downloading object database from: {download_url}")
         
@@ -2196,9 +2249,17 @@ def download_object_database():
             'error': error_msg
         }), 500
 
+
+# ============================================================================
+# Application Startup
+# ============================================================================
+
 if __name__ == '__main__':
-    # Start the cleanup thread
+    # Initialize SAM2 model
+    initialize_model()
+    
+    # Start the cleanup thread (uncomment to enable automatic cleanup)
     # start_cleanup_thread()
     
     # Run the Flask app
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=5001, debug=False)
