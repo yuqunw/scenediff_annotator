@@ -11,8 +11,6 @@ import json
 import pickle
 import subprocess
 import threading
-import tempfile
-import shutil
 import queue
 import base64
 import io
