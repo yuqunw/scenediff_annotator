@@ -15,11 +15,9 @@ The SceneDiff Annotator is built on top of [SAM2](https://github.com/facebookres
 
 ### Demo
 
-<video src="videos/annotation_visualization.mov" controls width="100%">
-  Your browser does not support the video tag. <a href="videos/annotation_visualization.mov">Download the demo video</a>.
-</video>
+📹 **[Watch the annotation demo video](videos/annotation_visualization.mov)** (click to download and view)
 
-*Watch the video above to see the annotation tool in action.*
+*The demo shows the complete annotation workflow in action.*
 
 ## Installation
 
@@ -69,7 +67,7 @@ For detailed SAM2 installation instructions, refer to the [official SAM2 reposit
 2. **Configure Object Attributes**: 
    - Specify the number of changed objects
    - Specify the name, multiplicity index
-   - Specify the appearance in video 1 and video 2 and number of frames for annotation deformabiltiy
+   - Specify the appearance in video 1 and video 2 and number of frames for annotation
    - Specify the deformabiltiy
 
 3. **Provide Annotations**:
