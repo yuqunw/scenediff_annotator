@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Segmented Videos for Review</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        
+        .main-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .section {
+            background-color: white;
+            border-radius: 8px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .navbar {
+            margin-bottom: 30px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .upload-container {
+            border: 2px dashed #ddd;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .upload-container.highlight {
+            border-color: #007bff;
+            background-color: #f0f7ff;
+        }
+        
+        .instructions {
+            background-color: #f0f8ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .file-name {
+            margin-top: 10px;
+            font-weight: 500;
+        }
+        
+        .error-details {
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <div class="container">
+            <a class="navbar-brand" href="/">Video Segmentation Tool</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">New Annotation</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/review">Review Sessions</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/review/upload">Upload for Review</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-container">
+        <h1 class="mb-4">Upload Segmented Videos for Review</h1>
+        
+        <div class="section">
+            <div class="instructions">
+                <h5>Instructions:</h5>
+                <p>Upload two segmented videos along with the corresponding data file (.pkl) for review. All three files are required.</p>
+                <ul>
+                    <li>Video 1 & 2: Segmented videos with annotated objects</li>
+                    <li>Data File: A .pkl file containing segmentation data</li>
+                </ul>
+            </div>
+            
+            <form id="uploadForm">
+                <div class="mb-4">
+                    <label for="sessionId" class="form-label">Session ID:</label>
+                    <input type="text" class="form-control" id="sessionId" placeholder="Enter a unique session identifier" required>
+                    <div class="form-text">This will be used to identify the session in the review dashboard.</div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="video1File" class="form-label">Video 1 (Segmented):</label>
+                    <div class="upload-container" id="video1Container">
+                        <div class="mb-2">
+                            <i class="bi bi-upload"></i> Drag & drop video file or
+                        </div>
+                        <input type="file" class="form-control" id="video1File" accept="video/*" required>
+                        <div id="video1Name" class="file-name"></div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="video2File" class="form-label">Video 2 (Segmented):</label>
+                    <div class="upload-container" id="video2Container">
+                        <div class="mb-2">
+                            <i class="bi bi-upload"></i> Drag & drop video file or
+                        </div>
+                        <input type="file" class="form-control" id="video2File" accept="video/*" required>
+                        <div id="video2Name" class="file-name"></div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="dataFile" class="form-label">Data File (.pkl):</label>
+                    <div class="upload-container" id="dataContainer">
+                        <div class="mb-2">
+                            <i class="bi bi-upload"></i> Drag & drop .pkl file or
+                        </div>
+                        <input type="file" class="form-control" id="dataFile" accept=".pkl" required>
+                        <div id="dataName" class="file-name"></div>
+                    </div>
+                </div>
+                
+                <div class="d-grid gap-2">
+                    <button type="submit" id="submitBtn" class="btn btn-primary">Submit for Review</button>
+                </div>
+            </form>
+            
+            <div id="uploadStatus" class="alert mt-3 d-none"></div>
+            <div id="errorDetails" class="error-details d-none"></div>
+        </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div class="modal fade" id="successModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Upload Successful</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Your segmented videos and data have been uploaded successfully!</p>
+                    <p>You can now review them in the review dashboard.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <a href="/review" class="btn btn-primary">Go to Review Dashboard</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // File upload handling
+        function handleFileSelect(fileInput, nameElement, containerElement) {
+            fileInput.addEventListener('change', function(e) {
+                if (this.files && this.files.length > 0) {
+                    const fileName = this.files[0].name;
+                    nameElement.textContent = fileName;
+                    containerElement.classList.add('highlight');
+                } else {
+                    nameElement.textContent = '';
+                    containerElement.classList.remove('highlight');
+                }
+            });
+            
+            // Drag and drop handling
+            containerElement.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.classList.add('highlight');
+            });
+            
+            containerElement.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.classList.remove('highlight');
+            });
+            
+            containerElement.addEventListener('drop', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.classList.remove('highlight');
+                
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    fileInput.files = e.dataTransfer.files;
+                    const fileName = e.dataTransfer.files[0].name;
+                    nameElement.textContent = fileName;
+                    this.classList.add('highlight');
+                    
+                    // Trigger change event for validation
+                    const event = new Event('change');
+                    fileInput.dispatchEvent(event);
+                }
+            });
+        }
+        
+        // Form submission
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const sessionId = document.getElementById('sessionId').value.trim();
+            const video1File = document.getElementById('video1File').files[0];
+            const video2File = document.getElementById('video2File').files[0];
+            const dataFile = document.getElementById('dataFile').files[0];
+            
+            // Hide any previous error details
+            document.getElementById('errorDetails').classList.add('d-none');
+            
+            if (!sessionId) {
+                showAlert('Please enter a session ID', 'danger');
+                return;
+            }
+            
+            if (!video1File) {
+                showAlert('Please select Video 1 file', 'danger');
+                return;
+            }
+            
+            if (!video2File) {
+                showAlert('Please select Video 2 file', 'danger');
+                return;
+            }
+            
+            if (!dataFile) {
+                showAlert('Please select Data (.pkl) file', 'danger');
+                return;
+            }
+            
+            // Check file extensions for videos (more permissive)
+            const validVideoExtensions = ['.mp4', '.avi', '.mov', '.webm', '.mkv'];
+            const video1Ext = video1File.name.toLowerCase().substring(video1File.name.lastIndexOf('.'));
+            const video2Ext = video2File.name.toLowerCase().substring(video2File.name.lastIndexOf('.'));
+            
+            if (!validVideoExtensions.includes(video1Ext)) {
+                showAlert(`Video 1 must be a valid video file. Supported formats: ${validVideoExtensions.join(', ')}`, 'danger');
+                return;
+            }
+            
+            if (!validVideoExtensions.includes(video2Ext)) {
+                showAlert(`Video 2 must be a valid video file. Supported formats: ${validVideoExtensions.join(', ')}`, 'danger');
+                return;
+            }
+            
+            if (!dataFile.name.toLowerCase().endsWith('.pkl')) {
+                showAlert('Data file must be a .pkl file', 'danger');
+                return;
+            }
+            
+            // Prepare form data
+            const formData = new FormData();
+            formData.append('session_id', sessionId);
+            formData.append('video1', video1File);
+            formData.append('video2', video2File);
+            formData.append('data', dataFile);
+            
+            // Disable submit button and show loading
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Uploading...';
+            
+            showAlert('Uploading files...', 'info');
+            
+            // Send to backend
+            fetch('/api/upload-review', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.error || `Server error: ${response.status}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Show success message and reset form
+                showSuccessModal();
+                resetForm();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                
+                // Show error details
+                showAlert('Error uploading files: ' + error.message, 'danger');
+                
+                // Add stack trace or detailed error if available
+                const errorDetails = document.getElementById('errorDetails');
+                errorDetails.textContent = 'Error details: ' + error.stack || error.message;
+                errorDetails.classList.remove('d-none');
+            })
+            .finally(() => {
+                // Re-enable submit button
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = 'Submit for Review';
+            });
+        });
+        
+        // Show alert message
+        function showAlert(message, type) {
+            const statusDiv = document.getElementById('uploadStatus');
+            statusDiv.textContent = message;
+            statusDiv.className = `alert alert-${type} mt-3`;
+            statusDiv.classList.remove('d-none');
+        }
+        
+        // Show success modal
+        function showSuccessModal() {
+            const modal = new bootstrap.Modal(document.getElementById('successModal'));
+            modal.show();
+        }
+        
+        // Reset form
+        function resetForm() {
+            document.getElementById('uploadForm').reset();
+            document.getElementById('video1Name').textContent = '';
+            document.getElementById('video2Name').textContent = '';
+            document.getElementById('dataName').textContent = '';
+            document.getElementById('video1Container').classList.remove('highlight');
+            document.getElementById('video2Container').classList.remove('highlight');
+            document.getElementById('dataContainer').classList.remove('highlight');
+            document.getElementById('errorDetails').classList.add('d-none');
+        }
+        
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set up file upload handlers
+            handleFileSelect(
+                document.getElementById('video1File'),
+                document.getElementById('video1Name'),
+                document.getElementById('video1Container')
+            );
+            
+            handleFileSelect(
+                document.getElementById('video2File'),
+                document.getElementById('video2Name'),
+                document.getElementById('video2Container')
+            );
+            
+            handleFileSelect(
+                document.getElementById('dataFile'),
+                document.getElementById('dataName'),
+                document.getElementById('dataContainer')
+            );
+            
+            // Add session ID validation
+            document.getElementById('sessionId').addEventListener('input', function() {
+                // Replace invalid characters with underscores
+                this.value = this.value.replace(/[^a-zA-Z0-9_-]/g, '_');
+            });
+        });
+    </script>
+</body>
+</html>

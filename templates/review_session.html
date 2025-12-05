@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review Session</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        
+        .main-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .section {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .video-container {
+            margin-bottom: 20px;
+        }
+        
+        .video-container video {
+            width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+        
+        .status-needs-review {
+            background-color: #f8d7da;
+            color: #842029;
+        }
+        
+        .status-reviewed {
+            background-color: #d1e7dd;
+            color: #0f5132;
+        }
+        
+        .navbar {
+            margin-bottom: 30px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .object-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        
+        .feedback-container {
+            background-color: #f0f9ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        .session-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+        
+        .table-responsive {
+            margin-top: 20px;
+        }
+        
+        .spinner-border-sm {
+            margin-right: 5px;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <div class="container">
+            <a class="navbar-brand" href="/">Video Segmentation Tool</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/review/offline">Offline Jobs</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">New Annotation</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/review">Review Sessions</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/review/upload">Upload for Review</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-container">
+        <div class="session-info">
+            <div>
+                <h1 id="sessionTitle">Review Session: <span id="sessionId">session_id</span></h1>
+                <p id="sessionDate" class="text-muted">Date: <span>...</span></p>
+            </div>
+            <div>
+                <span id="sessionStatus" class="status-badge status-needs-review">Needs Review</span>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="row">
+                <div class="col-md-6">
+                    <h3>Video 1</h3>
+                    <div class="video-container">
+                        <video id="video1" controls>
+                            <source id="video1Source" src="" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <h3>Video 2</h3>
+                    <div class="video-container">
+                        <video id="video2" controls>
+                            <source id="video2Source" src="" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h3>Object Annotations</h3>
+            <p class="text-muted">Review each object segmentation and provide feedback.</p>
+            
+            <div class="table-responsive">
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th width="5%">Label</th>
+                            <th width="15%">Object</th>
+                            <th width="15%">Appears In</th>
+                            <th width="15%">Status</th>
+                            <th width="25%">Comment</th>
+                            <th width="12%">Needs Reannotation</th>
+                            <th width="12%">Reviewed</th>
+                        </tr>
+                    </thead>
+                    <tbody id="objectTable">
+                        <!-- Objects will be loaded here dynamically -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="section feedback-container">
+            <h3>Reviewer Feedback</h3>
+            <div class="mb-3">
+                <label for="reviewerName" class="form-label">Reviewer Name:</label>
+                <input type="text" class="form-control" id="reviewerName" placeholder="Enter your name">
+            </div>
+            <div class="mb-3">
+                <label for="reviewerComments" class="form-label">Overall Comments:</label>
+                <textarea class="form-control" id="reviewerComments" rows="3" placeholder="Enter any overall comments or feedback"></textarea>
+            </div>
+            <div class="d-flex justify-content-between">
+                <button id="submitReview" class="btn btn-success">Submit Review</button>
+                <button id="requestReannotation" class="btn btn-warning">Request Reannotation</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div class="modal fade" id="successModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Success</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="successMessage">Review submitted successfully!</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal" id="goToReviewDashboard">Back to Dashboard</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reannotation Modal -->
+    <div class="modal fade" id="reannotationModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Configure Reannotation</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Select which videos and how many views to reannotate for each object:</p>
+                    <div id="objectsToReannotate">
+                        <!-- Object reannotation options will be loaded here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="startReannotation">
+                        <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                        Start Reannotation
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Get session ID from URL
+        const urlParams = new URLSearchParams(window.location.pathname);
+        const pathSegments = window.location.pathname.split('/');
+        const sessionId = pathSegments[pathSegments.length - 1];
+        
+        // Set session ID in page
+        document.getElementById('sessionId').textContent = sessionId;
+        
+        // Color map for visualization (same as in backend.py)
+        const colorMap = [
+            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+            '#8c564b', '#e377c2', '#3f3f3f', '#bcbd22', '#17becf'
+        ];
+        
+        // Sample data for testing - this would come from your backend
+        // const sampleObjects = [
+        //     {
+        //         label: 'chair_1',
+        //         in_video1: true,
+        //         in_video2: true,
+        //         video1_status: 'static',
+        //         video2_status: 'moved',
+        //         original_obj_idx: 0
+        //     },
+        //     {
+        //         label: 'book_1',
+        //         in_video1: true,
+        //         in_video2: false,
+        //         video1_status: 'static',
+        //         video2_status: null,
+        //         original_obj_idx: 1
+        //     },
+        //     {
+        //         label: 'plant_1',
+        //         in_video1: false,
+        //         in_video2: true,
+        //         video1_status: null,
+        //         video2_status: 'static',
+        //         original_obj_idx: 2
+        //     }
+        // ];
+        
+        // Function to load session data
+        // async function loadSessionData() {
+        //     try {
+        //         // In practice, fetch from your backend
+        //         // const response = await fetch(`/api/sessions/${sessionId}`);
+        //         // const data = await response.json();
+                
+        //         // For now, use sample data
+        //         return {
+        //             id: sessionId,
+        //             date: '2025-04-02',
+        //             time: '03:36:53',
+        //             status: 'needs_review',
+        //             video1_url: '/results/' + sessionId + '/video1.mp4',
+        //             video2_url: '/results/' + sessionId + '/video2.mp4',
+        //             objects: sampleObjects
+        //         };
+        //     } catch (error) {
+        //         console.error('Error loading session:', error);
+        //         alert('Failed to load session data');
+        //         return null;
+        //     }
+        // }
+
+        // // Function to load session data
+        // async function loadSessionData() {
+        //     try {
+        //         // Fetch session data from the backend
+        //         const response = await fetch(`/api/sessions/${sessionId}`);
+        //         if (!response.ok) {
+        //             throw new Error('Failed to fetch session data');
+        //         }
+        //         const data = await response.json();
+                
+        //         return {
+        //             id: sessionId,
+        //             date: data.timestamp.split('_')[0],
+        //             time: data.timestamp.split('_')[1].replace(/-/g, ':'),
+        //             status: data.status || 'needs_review',
+        //             video1_url: data.video1_url.replace('video1.mp4', 'video1_compressed.mp4'),
+        //             video2_url: data.video2_url.replace('video2.mp4', 'video2_compressed.mp4'),
+        //             objects: data.objects || []
+        //         };
+        //     } catch (error) {
+        //         console.error('Error loading session:', error);
+        //         alert('Failed to load session data: ' + error.message);
+        //         return null;
+        //     }
+        // }
+
+        async function loadSessionData() {
+            try {
+                // Fetch session data from the backend with cache-busting
+                const timestamp = new Date().getTime();
+                const response = await fetch(`/api/sessions/${sessionId}?t=${timestamp}`);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch session data: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('Loaded session data:', data); // Debug log
+                
+                // Ensure video paths are correct and use compressed videos if available
+                let video1Path = data.video1_url;
+                let video2Path = data.video2_url;
+                
+                // // If video paths don't end with _compressed.mp4, try to use compressed version
+                // if (!video1Path.includes('compressed')) {
+                //     video1Path = video1Path.replace('video1.mp4', 'video1_compressed.mp4');
+                // }
+                
+                // if (!video2Path.includes('compressed')) {
+                //     video2Path = video2Path.replace('video2.mp4', 'video2_compressed.mp4');
+                // }
+                
+                return {
+                    id: sessionId,
+                    date: data.date || data.timestamp?.split('_')[0] || 'Unknown',
+                    time: data.time || (data.timestamp?.split('_')[1]?.replace(/-/g, ':')) || 'Unknown',
+                    status: data.status || 'needs_review',
+                    video1_url: video1Path,
+                    video2_url: video2Path,
+                    pkl_path: data.pkl_path || '',
+                    objects: data.objects || [],
+                    review: data.review || null
+                };
+            } catch (error) {
+                console.error('Error loading session:', error);
+                alert('Failed to load session data: ' + error.message);
+                return null;
+            }
+        }
+        
+        // Function to populate the page with session data
+        // function populateSessionData(data) {
+        //     // Set basic session info
+        //     document.getElementById('sessionDate').querySelector('span').textContent = 
+        //         `${data.date} ${data.time}`;
+            
+        //     document.getElementById('sessionStatus').className = 
+        //         data.status === 'needs_review' 
+        //             ? 'status-badge status-needs-review' 
+        //             : 'status-badge status-reviewed';
+            
+        //     document.getElementById('sessionStatus').textContent = 
+        //         data.status === 'needs_review' ? 'Needs Review' : 'Reviewed';
+            
+        //     // Set video sources
+        //     document.getElementById('video1Source').src = data.video1_url;
+        //     document.getElementById('video2Source').src = data.video2_url;
+            
+        //     // Reload videos to apply new sources
+        //     document.getElementById('video1').load();
+        //     document.getElementById('video2').load();
+            
+        //     // Populate object table
+        //     populateObjectTable(data.objects);
+        // }
+
+        function populateSessionData(data) {
+            // Set basic session info
+            document.getElementById('sessionDate').querySelector('span').textContent = 
+                `${data.date} ${data.time}`;
+            
+            document.getElementById('sessionStatus').className = 
+                data.status === 'needs_review' 
+                    ? 'status-badge status-needs-review' 
+                    : 'status-badge status-reviewed';
+            
+            document.getElementById('sessionStatus').textContent = 
+                data.status === 'needs_review' ? 'Needs Review' : 'Reviewed';
+            
+            // Debug video URLs
+            console.log('Video 1 URL:', data.video1_url);
+            console.log('Video 2 URL:', data.video2_url);
+            
+            // Generate a unique timestamp for proper cache-busting
+            const timestamp = new Date().getTime();
+            
+            // Set up video 1 with strong cache-busting
+            const video1Element = document.getElementById('video1');
+            video1Element.innerHTML = ''; // Clear any existing content
+            video1Element.style.maxHeight = '600px'; // Add fixed height
+            video1Element.style.objectFit = 'contain'; // Maintain aspect ratio
+            const source1 = document.createElement('source');
+            source1.src = `${data.video1_url}?t=${timestamp}`;
+            source1.type = 'video/mp4';
+            video1Element.appendChild(source1);
+            video1Element.appendChild(document.createTextNode('Your browser does not support the video tag.'));
+            
+            // Set up video 2 with strong cache-busting
+            const video2Element = document.getElementById('video2');
+            video2Element.innerHTML = ''; // Clear any existing content
+            video2Element.style.maxHeight = '600px'; // Add fixed height 
+            video2Element.style.objectFit = 'contain'; // Maintain aspect ratio
+            const source2 = document.createElement('source');
+            source2.src = `${data.video2_url}?t=${timestamp}`;
+            source2.type = 'video/mp4';
+            video2Element.appendChild(source2);
+            video2Element.appendChild(document.createTextNode('Your browser does not support the video tag.'));
+            
+            // Add error listeners for debugging
+            video1Element.addEventListener('error', function(e) {
+                console.error('Video 1 error:', e);
+            });
+            
+            video2Element.addEventListener('error', function(e) {
+                console.error('Video 2 error:', e);
+            });
+            
+            // Force reload of videos
+            video1Element.load();
+            video2Element.load();
+            
+            // Populate object table
+            populateObjectTable(data.objects);
+            
+            // Prefill form with review data if available
+            if (data.review) {
+                prefillReviewData(data.review, data.objects.length);
+            }
+        }
+
+        // Function to populate the object table
+        function populateObjectTable(objects) {
+            const tableBody = document.getElementById('objectTable');
+            tableBody.innerHTML = '';
+            
+            objects.forEach((object, index) => {
+                const row = document.createElement('tr');
+                
+                // Object color
+                const colorCell = document.createElement('td');
+                const colorSwatch = document.createElement('div');
+                colorSwatch.className = 'object-color';
+                colorSwatch.style.backgroundColor = colorMap[object.original_obj_idx % 10];
+                colorCell.appendChild(colorSwatch);
+                
+                // Object label
+                const labelCell = document.createElement('td');
+                labelCell.textContent = object.label;
+                
+                // Appears in
+                const appearsCell = document.createElement('td');
+                let appearsText = [];
+                if (object.in_video1) appearsText.push('Video 1');
+                if (object.in_video2) appearsText.push('Video 2');
+                appearsCell.textContent = appearsText.join(', ');
+                
+                // Status
+                const statusCell = document.createElement('td');
+                let statusText = [];
+                if (object.in_video1) statusText.push(`V1: ${object.video1_status || 'N/A'}`);
+                if (object.in_video2) statusText.push(`V2: ${object.video2_status || 'N/A'}`);
+                statusCell.textContent = statusText.join(', ');
+                
+                // Comment
+                const commentCell = document.createElement('td');
+                const commentInput = document.createElement('textarea');
+                commentInput.className = 'form-control';
+                commentInput.id = `comment_${index}`;
+                commentInput.rows = 2;
+                commentInput.placeholder = 'Enter comment...';
+                commentCell.appendChild(commentInput);
+                
+                // Needs reannotation
+                const reannotationCell = document.createElement('td');
+                const reannotationCheck = document.createElement('div');
+                reannotationCheck.className = 'form-check d-flex justify-content-center';
+                reannotationCheck.innerHTML = `
+                    <input class="form-check-input" type="checkbox" id="reannotation_${index}">
+                `;
+                reannotationCell.appendChild(reannotationCheck);
+                
+                // Reviewed
+                const reviewedCell = document.createElement('td');
+                const reviewedCheck = document.createElement('div');
+                reviewedCheck.className = 'form-check d-flex justify-content-center';
+                reviewedCheck.innerHTML = `
+                    <input class="form-check-input" type="checkbox" id="reviewed_${index}">
+                `;
+                reviewedCell.appendChild(reviewedCheck);
+                
+                // Add cells to row
+                row.appendChild(colorCell);
+                row.appendChild(labelCell);
+                row.appendChild(appearsCell);
+                row.appendChild(statusCell);
+                row.appendChild(commentCell);
+                row.appendChild(reannotationCell);
+                row.appendChild(reviewedCell);
+                
+                // Add row to table
+                tableBody.appendChild(row);
+            });
+        }
+        
+        // Function to submit review
+        async function submitReview() {
+            const reviewerName = document.getElementById('reviewerName').value.trim();
+            const reviewerComments = document.getElementById('reviewerComments').value.trim();
+            
+            if (!reviewerName) {
+                alert('Please enter your name as the reviewer');
+                return;
+            }
+            
+            // Collect object reviews
+            const objectReviews = [];
+            const tableRows = document.querySelectorAll('#objectTable tr');
+            
+            tableRows.forEach((row, index) => {
+                const comment = document.getElementById(`comment_${index}`).value;
+                const needsReannotation = document.getElementById(`reannotation_${index}`).checked;
+                const reviewed = document.getElementById(`reviewed_${index}`).checked;
+                
+                objectReviews.push({
+                    index,
+                    comment,
+                    needsReannotation,
+                    reviewed
+                });
+            });
+            
+            const reviewData = {
+                sessionId,
+                reviewerName,
+                reviewerComments,
+                timestamp: new Date().toISOString(),
+                objectReviews
+            };
+            
+        //     try {
+        //         console.log('Review submitted:', reviewData);
+                
+        //         // Show success modal
+        //         document.getElementById('successMessage').textContent = 
+        //             'Review submitted successfully!';
+        //         const modal = new bootstrap.Modal(document.getElementById('successModal'));
+        //         modal.show();
+                
+        //         // Update the status badge
+        //         document.getElementById('sessionStatus').className = 'status-badge status-reviewed';
+        //         document.getElementById('sessionStatus').textContent = 'Reviewed';
+                
+        //     } catch (error) {
+        //         console.error('Error submitting review:', error);
+        //         alert('Failed to submit review');
+        //     }
+        // }
+            try {
+            // Send the review data to the server
+            fetch('/api/reviews', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(reviewData)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to submit review');
+                }
+                return response.json();
+            })
+            .then(result => {
+                // Show success modal
+                document.getElementById('successMessage').textContent = 
+                    'Review submitted successfully!';
+                const modal = new bootstrap.Modal(document.getElementById('successModal'));
+                modal.show();
+                
+                // Update the status badge immediately
+                document.getElementById('sessionStatus').className = 'status-badge status-reviewed';
+                document.getElementById('sessionStatus').textContent = 'Reviewed';
+                
+                // After modal is closed, redirect to dashboard to see the updated list
+                document.getElementById('goToReviewDashboard').addEventListener('click', () => {
+                    window.location.href = '/review';
+                });
+            })
+            .catch(error => {
+                console.error('Error submitting review:', error);
+                alert('Failed to submit review: ' + error.message);
+            });
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error submitting review');
+        }
+    }
+        
+        // Function to request reannotation
+        function requestReannotation() {
+            // First save the review data (similar to submitReview)
+            const reviewerName = document.getElementById('reviewerName').value.trim();
+            const reviewerComments = document.getElementById('reviewerComments').value.trim();
+            
+            if (!reviewerName) {
+                alert('Please enter your name as the reviewer before requesting reannotation');
+                return;
+            }
+            
+            // Collect object reviews
+            const objectReviews = [];
+            const tableRows = document.querySelectorAll('#objectTable tr');
+            
+            tableRows.forEach((row, index) => {
+                const comment = document.getElementById(`comment_${index}`).value;
+                const needsReannotation = document.getElementById(`reannotation_${index}`).checked;
+                const reviewed = document.getElementById(`reviewed_${index}`).checked;
+                
+                objectReviews.push({
+                    index,
+                    comment,
+                    needsReannotation,
+                    reviewed
+                });
+            });
+            
+            const reviewData = {
+                sessionId,
+                reviewerName,
+                reviewerComments,
+                timestamp: new Date().toISOString(),
+                objectReviews
+            };
+            
+            // Send the review data to the server
+            fetch('/api/reviews', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(reviewData)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to submit review');
+                }
+                return response.json();
+            })
+            .then(result => {
+                // Update the status badge
+                document.getElementById('sessionStatus').className = 'status-badge status-reviewed';
+                document.getElementById('sessionStatus').textContent = 'Reviewed';
+                
+                // Proceed with reannotation setup
+                proceedWithReannotation();
+            })
+            .catch(error => {
+                console.error('Error submitting review:', error);
+                alert('Failed to submit review: ' + error.message);
+            });
+        }
+
+        // Function to handle the actual reannotation setup
+        function proceedWithReannotation() {
+            // Check if any objects are marked for reannotation
+            const reannotationChecks = document.querySelectorAll('[id^="reannotation_"]');
+            let anyChecked = false;
+            
+            // Collect objects for reannotation
+            const objectsToReannotate = [];
+            
+            reannotationChecks.forEach((check, index) => {
+                if (check.checked) {
+                    anyChecked = true;
+                    objectsToReannotate.push(index);
+                }
+            });
+            
+            if (!anyChecked) {
+                alert('Please select at least one object for reannotation');
+                return;
+            }
+            
+            // Show reannotation modal
+            document.getElementById('objectsToReannotate').innerHTML = '';
+            
+            // Get reannotation data from original objects
+            fetch(`/api/session_objects/${sessionId}`)
+            .then(response => response.json())
+            .then(data => {
+                // Create UI for reannotation configuration
+                objectsToReannotate.forEach(objIndex => {
+                    const obj = data.objects[objIndex];
+                    if (!obj) return;
+                    
+                    const objectRow = document.createElement('div');
+                    objectRow.className = 'mb-3 object-reannot-row';
+                    objectRow.dataset.objIndex = objIndex;
+                    objectRow.dataset.originalObjIndex = obj.original_obj_idx;
+                    
+                    let html = `
+                        <h5>${obj.label}</h5>
+                        <div class="row">
+                    `;
+                    
+                    // Video 1 views
+                    if (obj.in_video1) {
+                        html += `
+                            <div class="col-md-6">
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input video-select" type="checkbox" id="reannot_v1_${objIndex}" data-video="1" checked>
+                                    <label class="form-check-label" for="reannot_v1_${objIndex}">Video 1</label>
+                                </div>
+                                <select class="form-select view-count" id="reannot_views_v1_${objIndex}">
+                                    <option value="1">1 View</option>
+                                    <option value="2">2 Views</option>
+                                    <option value="3">3 Views</option>
+                                    <option value="4">4 Views</option>
+                                    <option value="5">5 Views</option>
+                                </select>
+                            </div>
+                        `;
+                    }
+                    
+                    // Video 2 views
+                    if (obj.in_video2) {
+                        html += `
+                            <div class="col-md-6">
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input video-select" type="checkbox" id="reannot_v2_${objIndex}" data-video="2" checked>
+                                    <label class="form-check-label" for="reannot_v2_${objIndex}">Video 2</label>
+                                </div>
+                                <select class="form-select view-count" id="reannot_views_v2_${objIndex}">
+                                    <option value="1">1 View</option>
+                                    <option value="2">2 Views</option>
+                                    <option value="3">3 Views</option>
+                                    <option value="4">4 Views</option>
+                                    <option value="5">5 Views</option>
+                                </select>
+                            </div>
+                        `;
+                    }
+                    
+                    html += `</div>`;
+                    objectRow.innerHTML = html;
+                    document.getElementById('objectsToReannotate').appendChild(objectRow);
+                });
+                
+                // Show the modal
+                const reannotationModal = new bootstrap.Modal(document.getElementById('reannotationModal'));
+                reannotationModal.show();
+            })
+            .catch(error => {
+                console.error('Error fetching object data:', error);
+                alert('Error preparing reannotation: ' + error.message);
+            });
+        }
+
+        // Function to start reannotation process
+        function startReannotation() {
+            // Prevent double-clicking by disabling the button and showing a spinner
+            const button = document.getElementById('startReannotation');
+            const spinner = button.querySelector('.spinner-border');
+            
+            // Disable button and show spinner
+            button.disabled = true;
+            spinner.classList.remove('d-none');
+            button.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Starting...`;
+            
+            // Fetch object data from the server first
+            fetch(`/api/session_objects/${sessionId}`)
+            .then(response => response.json())
+            .then(data => {
+                // Collect reannotation configuration
+                const reannotationConfig = [];
+                const objectRows = document.querySelectorAll('.object-reannot-row');
+                
+                objectRows.forEach(row => {
+                    const objIndex = parseInt(row.dataset.objIndex);
+                    const originalObjIndex = parseInt(row.dataset.originalObjIndex);
+                    const obj = data.objects[objIndex]; // Get the actual object data
+                    
+                    if (!obj) return; // Skip if object not found
+                    
+                    // Check if video 1 is selected
+                    const inVideo1 = document.getElementById(`reannot_v1_${objIndex}`)?.checked || false;
+                    // Check if video 2 is selected
+                    const inVideo2 = document.getElementById(`reannot_v2_${objIndex}`)?.checked || false;
+                    
+                    // Get views for video 1 and 2
+                    const viewsVideo1 = inVideo1 ? parseInt(document.getElementById(`reannot_views_v1_${objIndex}`).value) : 0;
+                    const viewsVideo2 = inVideo2 ? parseInt(document.getElementById(`reannot_views_v2_${objIndex}`).value) : 0;
+                    
+                    if (!inVideo1 && !inVideo2) {
+                        return; // Skip this object if no videos selected
+                    }
+                    reannotationConfig.push({
+                        name: obj.label,
+                        number: 0, // Hack for now. Would distinguish it in the start_reannotation endpoint
+                        obj_idx: objIndex,
+                        original_obj_idx: originalObjIndex,
+                        inVideo1: inVideo1,
+                        inVideo2: inVideo2,
+                        viewsInVideo1: viewsVideo1,
+                        viewsInVideo2: viewsVideo2,
+                        currentViewVideo1: 0,
+                        currentViewVideo2: 0,
+                        completedViewsVideo1: new Set(),
+                        completedViewsVideo2: new Set(),
+                        originalIndex: originalObjIndex,
+                        deformability: obj.deformability,
+                    });
+                });
+                
+                if (reannotationConfig.length === 0) {
+                    alert('Please select at least one object and video for reannotation');
+                    return;
+                }
+                
+                // Send reannotation configuration to server
+                fetch('/api/start_reannotation', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        session_id: sessionId,
+                        reannotation_config: reannotationConfig
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    
+                    // Store session ID for reannotation
+                    localStorage.setItem('reannotationSessionId', sessionId);
+                    
+                    // Redirect to annotation page
+                    window.location.href = `/?session=${sessionId}&mode=reannotation`;
+                })
+                .catch(error => {
+                    console.error('Error starting reannotation:', error);
+                    alert('Error starting reannotation: ' + error.message);
+                    
+                    // Re-enable button and hide spinner on error
+                    button.disabled = false;
+                    button.innerHTML = 'Start Reannotation';
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching object data:', error);
+                alert('Error preparing reannotation: ' + error.message);
+                
+                // Re-enable button and hide spinner on error
+                button.disabled = false;
+                button.innerHTML = 'Start Reannotation';
+            });
+        }
+
+        // Function to prefill form with existing review data
+        function prefillReviewData(reviewData, objectCount) {
+            // Prefill reviewer name and comments
+            if (reviewData.reviewerName) {
+                document.getElementById('reviewerName').value = reviewData.reviewerName;
+            }
+            
+            if (reviewData.reviewerComments) {
+                document.getElementById('reviewerComments').value = reviewData.reviewerComments;
+            }
+            
+            // Prefill object reviews if available
+            if (reviewData.objectReviews && Array.isArray(reviewData.objectReviews)) {
+                reviewData.objectReviews.forEach(review => {
+                    const index = review.index;
+                    
+                    // Only process valid indices
+                    if (index >= 0 && index < objectCount) {
+                        // Set comment
+                        if (review.comment) {
+                            const commentInput = document.getElementById(`comment_${index}`);
+                            if (commentInput) {
+                                commentInput.value = review.comment;
+                            }
+                        }
+                        
+                        // Set checkboxes
+                        const reannotationCheckbox = document.getElementById(`reannotation_${index}`);
+                        if (reannotationCheckbox) {
+                            reannotationCheckbox.checked = !!review.needsReannotation;
+                        }
+                        
+                        const reviewedCheckbox = document.getElementById(`reviewed_${index}`);
+                        if (reviewedCheckbox) {
+                            reviewedCheckbox.checked = !!review.reviewed;
+                        }
+                    }
+                });
+            }
+        }
+
+        // Add this function to help debug video loading issues
+        async function checkVideoAvailability(url) {
+            try {
+                const response = await fetch(url, { method: 'HEAD' });
+                console.log(`Video at ${url}: ${response.status} ${response.statusText}`);
+                return response.ok;
+            } catch (error) {
+                console.error(`Error checking video at ${url}:`, error);
+                return false;
+            }
+        }
+        
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', async () => {
+            const sessionData = await loadSessionData();
+            
+            if (sessionData) {
+                // Check if videos are accessible
+                const timestamp = new Date().getTime();
+                await checkVideoAvailability(`${sessionData.video1_url}?t=${timestamp}`);
+                await checkVideoAvailability(`${sessionData.video2_url}?t=${timestamp}`);
+                
+                populateSessionData(sessionData);
+            }
+            
+            // Set up event listeners
+            document.getElementById('submitReview').addEventListener('click', submitReview);
+            document.getElementById('requestReannotation').addEventListener('click', requestReannotation);
+            document.getElementById('goToReviewDashboard').addEventListener('click', () => {
+                window.location.href = '/review';
+            });
+            document.getElementById('startReannotation').addEventListener('click', startReannotation);
+        });
+    </script>
+</body>
+</html>
+
+
+

@@ -1,0 +1,2120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Segmentation Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        
+        .main-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .section {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .canvas-container {
+            position: relative;
+            margin: 0 auto;
+            max-width: 100%;
+            overflow: hidden;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f8f8f8;
+        }
+        
+        #imageCanvas {
+            display: block;
+            max-width: 100%;
+            cursor: crosshair;
+        }
+        
+        #maskCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            display: block;
+        }
+        
+        .point {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        
+        .point-positive {
+            background-color: green;
+            border: 2px solid white;
+        }
+        
+        .point-negative {
+            background-color: red;
+            border: 2px solid white;
+        }
+        
+        .step-container {
+            display: none;
+        }
+        
+        .step-container.active {
+            display: block;
+        }
+        
+        .btn-primary {
+            background-color: #007bff;
+        }
+        
+        .instructions {
+            background-color: #f0f8ff;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .progress-indicator {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .completion-badge {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background-color: #e9ecef;
+            color: #495057;
+            text-align: center;
+            line-height: 30px;
+            margin: 0 5px;
+        }
+        
+        .completion-badge.active {
+            background-color: #007bff;
+            color: white;
+        }
+        
+        .completion-badge.completed {
+            background-color: #28a745;
+            color: white;
+        }
+        
+        .frame-preview {
+            margin-top: 15px;
+            text-align: center;
+        }
+        
+        .frame-preview img {
+            max-width: 100%;
+            max-height: 300px;
+            border: 1px solid #ddd;
+        }
+        
+        .video-upload-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .video-upload-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .video-upload-row label {
+            min-width: 100px;
+        }
+        
+        .object-config-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+        }
+        
+        .object-config-row label {
+            margin-right: 10px;
+            margin-bottom: 0;
+        }
+        
+        .object-config-row .form-control {
+            max-width: 100px;
+            margin-right: 10px;
+        }
+        
+        .object-appearance {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .object-appearance .form-check {
+            margin-bottom: 0;
+        }
+        
+        .current-video-indicator {
+            font-weight: bold;
+            padding: 5px 10px;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+
+        .view-info {
+            font-weight: bold;
+            margin-top: 5px;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <!-- Add this right after the opening <body> tag in your index.html -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+        <div class="container">
+        <a class="navbar-brand" href="/">Video Segmentation Tool</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ms-auto">
+            <li class="nav-item">
+                <button class="nav-link btn btn-link" id="startOfflineJobBtn">Start Offline Job</button>
+            </li>
+            <!-- Add the Download Object Database button here -->
+            <li class="nav-item">
+                <button class="nav-link btn btn-link" id="downloadSpreadsheetButton">Download Object Database</button>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link active" href="/">New Annotation</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/review">Review Sessions</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/review/upload">Upload for Review</a>
+            </li>
+            </ul>
+        </div>
+        </div>
+    </nav>
+
+    <!-- Add this modal somewhere in your body -->
+    <div class="modal fade" id="offlineJobModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="offlineJobModalTitle">Offline Propagation Job</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="offlineJobStatus" class="alert alert-info">
+                        Ready to start offline propagation job.
+                    </div>
+                    <div class="progress mb-3 d-none" id="offlineJobProgress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-danger d-none" id="cancelOfflineJobBtn">Cancel Job</button>
+                    <button type="button" class="btn btn-primary" id="confirmOfflineJobBtn">Start Job</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- nav bar ends -->
+    <div class="main-container">
+        <h1 class="text-center mb-4">Video Segmentation Tool</h1>
+        
+        <!-- Step 1: Upload Videos -->
+        <div id="step1" class="section step-container active">
+            <h2>Step 1: Upload Your Videos</h2>
+            <div class="instructions">
+                <p>Please upload both videos and provide information about the scene.</p>
+            </div>
+            <form id="uploadForm" class="mb-3">
+                <div class="video-upload-container">
+                    <div class="video-upload-row">
+                        <label for="video1File" class="form-label">Video 1:</label>
+                        <input type="file" class="form-control" id="video1File" accept="video/*" required>
+                    </div>
+                    <div class="video-upload-row">
+                        <label for="video2File" class="form-label">Video 2:</label>
+                        <input type="file" class="form-control" id="video2File" accept="video/*" required>
+                    </div>
+                </div>
+                <div class="mb-3 mt-3">
+                    <label for="sceneType" class="form-label">Scene Type:</label>
+                    <input type="text" class="form-control" id="sceneType" required placeholder="e.g., kitchen, bedroom, office">
+                    <div class="form-text">Specify the type of scene shown in the videos.</div>
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">Upload Videos</button>
+                </div>
+            </form>
+            <div id="uploadStatus" class="alert alert-info d-none"></div>
+        </div>
+        
+        <!-- Step 2: Configure Objects -->
+        <div id="step2" class="section step-container">
+            <h2>Step 2: Configure Objects to Track</h2>
+            <div class="instructions">
+                <p>Specify the number of objects you want to track and in which videos they appear.</p>
+            </div>
+            <div class="mb-3">
+                <label for="objectNum" class="form-label">Number of Objects:</label>
+                <input type="number" class="form-control" id="objectNum" min="1" max="10" value="1">
+                <button id="generateObjectRows" class="btn btn-secondary mt-2">Generate Object Rows</button>
+            </div>
+            
+            <div id="objectConfigContainer" class="mb-3">
+                <!-- Object configuration rows will be added here -->
+            </div>
+            
+            <div class="d-grid gap-2">
+                <button id="confirmObjectConfig" class="btn btn-primary">Continue</button>
+                <button id="backToStep1" class="btn btn-secondary">Back</button>
+            </div>
+        </div>
+        
+        <!-- Step 3: Object Details -->
+        <div id="step3" class="section step-container">
+            <h2>Step 3: Set Object Frame</h2>
+            <div class="progress-indicator mb-3">
+                <div id="objectProgressIndicator"></div>
+            </div>
+            <div class="current-video-indicator">
+                Currently working on: <span id="currentVideoLabel">Video 1</span>
+            </div>
+            <div class="instructions">
+                <p>For each object, select the frame where it appears.</p>
+            </div>
+            <div id="objectDetailsContainer">
+            <div class="mb-3">
+                <label id="currentObjectNameLabel" class="form-label">Object: <span id="currentObjectName">-</span></label>
+                <div class="view-info">View: <span id="currentViewIndex">1</span>/<span id="totalViews">1</span></div>
+            </div>
+            <div class="mb-3">
+                    <label for="frameSlider" class="form-label">Select Frame:</label>
+                    <input type="range" class="form-range" id="frameSlider" min="0" value="0">
+                    <div class="d-flex justify-content-between">
+                        <small>Frame: <span id="currentFrameNum">0</span></small>
+                        <small>Time: <span id="currentFrameTime">0.00</span> sec</small>
+            </div>
+                </div>
+                <div class="frame-preview">
+                    <img id="framePreview" src="" alt="Frame preview">
+            </div>
+                <div class="d-grid gap-2 mt-3">
+                <button id="goToAnnotation" class="btn btn-primary">Proceed to Annotation</button>
+                <button id="backToStep2" class="btn btn-secondary">Back</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Step 4: Annotation -->
+        <div id="step4" class="section step-container">
+            <h2>Step 4: Annotate Object</h2>
+            <div class="current-video-indicator">
+                Currently working on: <span id="annotationVideoLabel">Video 1</span>
+            </div>
+            <div class="instructions">
+                <p><strong>Instructions:</strong></p>
+                <ul>
+                    <li><strong>Left click</strong>: Add positive point (green)</li>
+                    <li><strong>Right click</strong>: Add negative point (red)</li>
+                    <li>Click "Done with Object" when satisfied with the mask</li>
+                </ul>
+            </div>
+
+            <div id="annotationInfo" class="alert alert-info">
+                Annotating: <span id="currentObjectLabel">object_1</span>
+                <div class="view-info">View: <span id="annotationViewIndex">1</span>/<span id="annotationTotalViews">1</span></div>
+            </div>
+
+            <div class="canvas-container mb-3">
+                <canvas id="imageCanvas"></canvas>
+                <canvas id="maskCanvas"></canvas>
+                <div id="pointsContainer"></div>
+            </div>
+            <div class="d-grid gap-2">
+                <button id="clearPoints" class="btn btn-warning">Clear Points</button>
+                <button id="doneWithObject" class="btn btn-success">Done with Object</button>
+                
+                <button id="backToStep3" class="btn btn-secondary">Back</button>
+            </div>
+            <div id="processingStatus" class="alert alert-info mt-3 d-none"></div>
+        </div>
+        
+        <!-- Step 5: Results -->
+        <div id="step5" class="section step-container">
+            <h2>Step 5: Results</h2>
+            <div class="alert alert-success">
+                <p>Segmentation completed successfully!</p>
+            </div>
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <h4>Video 1 Segmentation:</h4>
+                    <video id="resultVideo1" controls class="w-100">
+                    Your browser does not support the video tag.
+                </video>
+                    <a id="downloadVideo1" class="btn btn-primary mt-2 w-100" download>Download Video 1</a>
+            </div>
+                <div class="col-md-6 mb-3">
+                    <h4>Video 2 Segmentation:</h4>
+                    <video id="resultVideo2" controls class="w-100">
+                        Your browser does not support the video tag.
+                    </video>
+                    <a id="downloadVideo2" class="btn btn-primary mt-2 w-100" download>Download Video 2</a>
+                </div>
+            </div>
+            <div class="mb-3 mt-3">
+                <h4>Download Data:</h4>
+                <div class="d-grid">
+                    <a id="downloadData" class="btn btn-primary" download>Download Data (PKL)</a>
+                </div>
+            </div>
+            <!-- Add this to your SAM mask generation page (similar to Image 4) - offline process -->
+            <div class="processing-options mt-3 mb-3">
+                <h5>Processing Options</h5>
+                <div class="form-check">
+                <input class="form-check-input" type="radio" name="processing-option" id="process-now" checked>
+                <label class="form-check-label" for="process-now">
+                    Process now
+                </label>
+                </div>
+                <div class="form-check">
+                <input class="form-check-input" type="radio" name="processing-option" id="process-offline">
+                <label class="form-check-label" for="process-offline">
+                    Queue for offline processing (2 AM - 7 AM)
+                </label>
+                </div>
+            </div>
+            <div class="mb-5 mt-4">
+                <h4>Object Review:</h4>
+                <div class="alert alert-info">
+                    <p>Review each object segmentation. Check the box if the segmentation is good, or add comments and re-annotate if needed.</p>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-bordered">
+                        <thead>
+                            <tr>
+                                <th>Color</th>
+                                <th>Object Label</th>
+                                <th>Appears In</th>
+                                <th>Comments</th>
+                                <th style="text-align: center;">Is Good?</th>
+                            </tr>
+                        </thead>
+                        <tbody id="objectReviewTable">
+                            <!-- Objects will be added here dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="d-flex justify-content-between mt-3">
+                    <button id="reannotateObjects" class="btn btn-warning">Re-annotate Unselected Objects</button>
+                    <div>
+                        <button id="rejectAnnotation" class="btn btn-danger me-2">Reject All</button>
+                        <button id="passAnnotation" class="btn btn-success" disabled>Pass All</button>
+                    </div>
+                </div>
+            </div>
+            <div id="reviewStatus" class="alert alert-warning mt-3 d-none">
+                Please review all objects before proceeding.
+            </div>
+            <div class="d-grid gap-2 mt-4">
+                <!-- Add a new button in the results section - offline process -->
+                <button id="queueOfflineProcessing" class="btn btn-secondary">
+                    Queue for Offline Processing
+                </button>
+                <button id="finishProcess" class="btn btn-success">Complete</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+
+        // Global variables
+        let sessionId = null;
+        let videoData = {
+            video1: {
+                frameCount: 0,
+                fps: 30,
+                objectsToAnnotate: [],
+                currentObjectIndex: 0
+            },
+            video2: {
+                frameCount: 0,
+                fps: 30,
+                objectsToAnnotate: [],
+                currentObjectIndex: 0
+            }
+        };
+        let currentVideoIndex = 1; // 1 or 2
+        let currentStep = 1;
+        let totalObjects = 0;
+        let objectConfigs = []; // {name, number, inVideo1, inVideo2}
+        let currentObjectIndex = 0;
+        let completedObjects = {
+            video1: new Set(),
+            video2: new Set()
+        };
+        let completedViews = {
+            video1: {}, // Will contain {objectIdx: Set of completed view indices}
+            video2: {}
+        };
+        let currentFrameIdx = 0;
+        let canvasWidth = 0;
+        let canvasHeight = 0;
+        let points = [];
+        let labels = [];
+        let imageCanvas = document.getElementById('imageCanvas');
+        let maskCanvas = document.getElementById('maskCanvas');
+        let imageCtx = imageCanvas.getContext('2d');
+        let maskCtx = maskCanvas.getContext('2d');
+
+        // Show specific step
+        function showStep(step) {
+            document.querySelectorAll('.step-container').forEach(el => {
+                el.classList.remove('active');
+            });
+            document.getElementById('step' + step).classList.add('active');
+            currentStep = step;
+        }
+
+        // Upload videos
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Check if we're in reannotation mode and clean up if needed
+            if (sessionStorage.getItem('reannotationMode') === 'true') {
+                // Clear reannotation flags
+                sessionStorage.removeItem('reannotationMode');
+                localStorage.removeItem('reannotationSessionId');
+                console.log('Cleaned up previous reannotation session');
+            }
+            
+            const video1Input = document.getElementById('video1File');
+            const video2Input = document.getElementById('video2File');
+            const sceneType = document.getElementById('sceneType').value.trim();
+            
+            if (!video1Input.files || video1Input.files.length === 0) {
+                showAlert('uploadStatus', 'Please select Video 1', 'danger');
+                return;
+            }
+            
+            if (!video2Input.files || video2Input.files.length === 0) {
+                showAlert('uploadStatus', 'Please select Video 2', 'danger');
+                return;
+            }
+            
+            if (!sceneType) {
+                showAlert('uploadStatus', 'Please enter the scene type', 'danger');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('video1', video1Input.files[0]);
+            formData.append('video2', video2Input.files[0]);
+            formData.append('scene_type', sceneType);
+            
+            // Show upload status
+            const statusDiv = document.getElementById('uploadStatus');
+            statusDiv.textContent = 'Uploading videos and processing frames...';
+            statusDiv.classList.remove('d-none', 'alert-danger');
+            statusDiv.classList.add('alert-info');
+            
+            // Upload the videos
+            fetch('/upload_videos', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Store session data
+                sessionId = data.session_id;
+                videoData.video1.frameCount = data.video1_frame_count;
+                videoData.video1.fps = data.video1_fps;
+                videoData.video2.frameCount = data.video2_frame_count;
+                videoData.video2.fps = data.video2_fps;
+                
+                statusDiv.textContent = 'Videos uploaded successfully!';
+                statusDiv.classList.remove('alert-info');
+                statusDiv.classList.add('alert-success');
+                
+                // Proceed to next step
+                setTimeout(() => {
+                    showStep(2);
+                }, 1000);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('uploadStatus', 'Error: ' + error.message, 'danger');
+            });
+        });
+
+        // Generate object configuration rows
+        document.getElementById('generateObjectRows').addEventListener('click', function() {
+            // Get the number of objects to create if CSV loading fails
+            const objectNum = parseInt(document.getElementById('objectNum').value) || 0;
+            
+            // Function to create empty rows
+            function createEmptyRows(count) {
+                const container = document.getElementById('objectConfigContainer');
+                container.innerHTML = '';
+                
+                for (let i = 0; i < count; i++) {
+                    const row = document.createElement('div');
+                    row.className = 'object-config-row';
+                    
+                    row.innerHTML = `
+                        <div class="empty-space mb-3 mt-2" style="width: 10px;"></div>
+                        <label for="objectName${i}">Object ${i+1}:</label>
+                        <input type="text" class="form-control" id="objectName${i}" placeholder="Label (e.g., book)" required>
+                        <input type="number" class="form-control" id="objectNumber${i}" min="1" max="10" value="1" placeholder="Number">
+                        
+                        <div class="empty-space mb-3 mt-2" style="width: 10px;"></div>
+
+                        <div class="object-appearance">
+                            <div class="d-flex align-items-center">
+                                <div class="form-check me-2">
+                                    <input class="form-check-input video-select" type="checkbox" id="inVideo1_${i}" data-video="1" data-object="${i}" checked>
+                                    <label class="form-check-label" for="inVideo1_${i}">Video 1</label>
+                                </div>
+                                <select class="form-select view-count ms-2" id="viewsVideo1_${i}" style="width: 100px;">
+                                    <option value="1">1 View</option>
+                                    <option value="2" selected>2 Views</option>
+                                    <option value="3">3 Views</option>
+                                    <option value="4">4 Views</option>
+                                    <option value="5">5 Views</option>
+                                </select>
+                            </div>
+                            <div class="d-flex align-items-center">
+                                <div class="form-check me-2">
+                                    <input class="form-check-input video-select" type="checkbox" id="inVideo2_${i}" data-video="2" data-object="${i}" checked>
+                                    <label class="form-check-label" for="inVideo2_${i}">Video 2</label>
+                                </div>
+                                <select class="form-select view-count ms-2" id="viewsVideo2_${i}" style="width: 100px;">
+                                    <option value="1">1 View</option>
+                                    <option value="2" selected>2 Views</option>
+                                    <option value="3">3 Views</option>
+                                    <option value="4">4 Views</option>
+                                    <option value="5">5 Views</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="empty-space mb-3 mt-2" style="width: 30px;"></div>
+
+                        <div class="object-properties mb-3 mt-2">
+                            <div class="object-property-section">
+                                <label class="form-label">Deformability:</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="deformability_${i}" id="rigid_${i}" value="rigid" checked>
+                                    <label class="form-check-label" for="rigid_${i}">Rigid</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="deformability_${i}" id="deformable_${i}" value="deformable">
+                                    <label class="form-check-label" for="deformable_${i}">Deformable</label>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(row);
+
+                    // Add event listeners for the checkboxes to enable/disable selects
+                    const video1Checkbox = row.querySelector(`#inVideo1_${i}`);
+                    const video2Checkbox = row.querySelector(`#inVideo2_${i}`);
+                    const viewsVideo1Select = row.querySelector(`#viewsVideo1_${i}`);
+                    const viewsVideo2Select = row.querySelector(`#viewsVideo2_${i}`);
+                    
+                    video1Checkbox.addEventListener('change', function() {
+                        viewsVideo1Select.disabled = !this.checked;
+                    });
+                    
+                    video2Checkbox.addEventListener('change', function() {
+                        viewsVideo2Select.disabled = !this.checked;
+                    });
+                }
+                
+                totalObjects = count;
+            }
+            
+            // Check if we have a session ID
+            if (!sessionId) {
+                console.log('No session ID available, creating empty rows');
+                if (objectNum > 0) {
+                    createEmptyRows(objectNum);
+                } else {
+                    alert('Please enter a valid number of objects (1-10)');
+                }
+                return;
+            }
+            
+            // Try to fetch objects from CSV
+            fetch(`/api/get_objects_from_csv?session_id=${encodeURIComponent(sessionId)}`)
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(data => {
+                            throw new Error(data.error || 'Failed to get objects from CSV');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const objects = data.objects;
+                    if (!objects || objects.length === 0) {
+                        console.log('No objects found in CSV, falling back to manual entry');
+                        if (objectNum > 0) {
+                            createEmptyRows(objectNum);
+                        } else {
+                            alert('No objects found in CSV. Please enter a number of objects to create.');
+                        }
+                        return;
+                    }
+                    
+                    // Generate rows based on the objects
+                    const container = document.getElementById('objectConfigContainer');
+                    container.innerHTML = '';
+                    
+                    objects.forEach((obj, i) => {
+                        const row = document.createElement('div');
+                        row.className = 'object-config-row';
+                        
+                        // Parse object name to check for _NUM suffix
+                        let objectName = obj.name;
+                        let objectNumber = 1;
+                        
+                        // Check if name ends with _NUMBER pattern
+                        const nameParts = obj.name.match(/^(.+)_(\d+)$/);
+                        if (nameParts) {
+                            objectName = nameParts[1];  // The part before _NUMBER
+                            objectNumber = parseInt(nameParts[2]);  // The number part
+                        }
+                        
+                        row.innerHTML = `
+                            <div class="empty-space mb-3 mt-2" style="width: 10px;"></div>
+                            <label for="objectName${i}">Object ${i+1}:</label>
+                            <input type="text" class="form-control" id="objectName${i}" placeholder="Label (e.g., book)" value="${objectName}" required>
+                            <input type="number" class="form-control" id="objectNumber${i}" min="1" max="10" value="${objectNumber}" placeholder="Number">
+                            
+                            <div class="empty-space mb-3 mt-2" style="width: 10px;"></div>
+
+                            <div class="object-appearance">
+                                <div class="d-flex align-items-center">
+                                    <div class="form-check me-2">
+                                        <input class="form-check-input video-select" type="checkbox" id="inVideo1_${i}" data-video="1" data-object="${i}" ${obj.inVideo1 ? 'checked' : ''}>
+                                        <label class="form-check-label" for="inVideo1_${i}">Video 1</label>
+                                    </div>
+                                    <select class="form-select view-count ms-2" id="viewsVideo1_${i}" style="width: 100px;" ${!obj.inVideo1 ? 'disabled' : ''}>
+                                        <option value="1">1 View</option>
+                                        <option value="2" selected>2 Views</option>
+                                        <option value="3">3 Views</option>
+                                        <option value="4">4 Views</option>
+                                        <option value="5">5 Views</option>
+                                    </select>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <div class="form-check me-2">
+                                        <input class="form-check-input video-select" type="checkbox" id="inVideo2_${i}" data-video="2" data-object="${i}" ${obj.inVideo2 ? 'checked' : ''}>
+                                        <label class="form-check-label" for="inVideo2_${i}">Video 2</label>
+                                    </div>
+                                    <select class="form-select view-count ms-2" id="viewsVideo2_${i}" style="width: 100px;" ${!obj.inVideo2 ? 'disabled' : ''}>
+                                        <option value="1">1 View</option>
+                                        <option value="2" selected>2 Views</option>
+                                        <option value="3">3 Views</option>
+                                        <option value="4">4 Views</option>
+                                        <option value="5">5 Views</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="empty-space mb-3 mt-2" style="width: 30px;"></div>
+
+                            <div class="object-properties mb-3 mt-2">
+                                <div class="object-property-section">
+                                    <label class="form-label">Deformability:</label>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="deformability_${i}" id="rigid_${i}" value="rigid" checked>
+                                        <label class="form-check-label" for="rigid_${i}">Rigid</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="deformability_${i}" id="deformable_${i}" value="deformable">
+                                        <label class="form-check-label" for="deformable_${i}">Deformable</label>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                        container.appendChild(row);
+
+                        // Add event listeners for the checkboxes to enable/disable selects
+                        const video1Checkbox = row.querySelector(`#inVideo1_${i}`);
+                        const video2Checkbox = row.querySelector(`#inVideo2_${i}`);
+                        const viewsVideo1Select = row.querySelector(`#viewsVideo1_${i}`);
+                        const viewsVideo2Select = row.querySelector(`#viewsVideo2_${i}`);
+                        
+                        video1Checkbox.addEventListener('change', function() {
+                            viewsVideo1Select.disabled = !this.checked;
+                        });
+                        
+                        video2Checkbox.addEventListener('change', function() {
+                            viewsVideo2Select.disabled = !this.checked;
+                        });
+                    });
+                    
+                    totalObjects = objects.length;
+                    console.log(`Successfully loaded ${objects.length} objects from CSV`);
+                })
+                .catch(error => {
+                    console.error('Error fetching objects from CSV:', error);
+                    console.log('Falling back to manual object entry');
+                    
+                    // Fall back to creating empty rows
+                    if (objectNum > 0) {
+                        createEmptyRows(objectNum);
+                    } else {
+                        alert('Could not read CSV data. Please enter a number of objects to create.');
+                    }
+                });
+        });
+
+        // Configure objects
+        document.getElementById('confirmObjectConfig').addEventListener('click', function() {
+            if (totalObjects === 0) {
+                alert('Please generate object rows first');
+                return;
+            }
+            
+            // Collect object configurations
+            objectConfigs = [];
+            let valid = true;
+            let anyObjectSelected = false;
+            
+            for (let i = 0; i < totalObjects; i++) {
+                const nameElement = document.getElementById(`objectName${i}`);
+                const numberElement = document.getElementById(`objectNumber${i}`);
+                const deformability = document.querySelector(`input[name="deformability_${i}"]:checked`).value;
+                const inVideo1 = document.getElementById(`inVideo1_${i}`).checked;
+                const inVideo2 = document.getElementById(`inVideo2_${i}`).checked;
+                
+                if (!nameElement.value.trim()) {
+                    alert(`Please enter a label for Object ${i+1}`);
+                    valid = false;
+                    break;
+                }
+                if (!inVideo1 && !inVideo2) {
+                    alert(`Object ${i+1} must appear in at least one video`);
+                    valid = false;
+                    break;
+                }
+                anyObjectSelected = true;
+
+                // Get number of views for each video
+                const viewsInVideo1 = inVideo1 ? parseInt(document.getElementById(`viewsVideo1_${i}`).value) : 0;
+                const viewsInVideo2 = inVideo2 ? parseInt(document.getElementById(`viewsVideo2_${i}`).value) : 0;
+
+                objectConfigs.push({
+                    name: nameElement.value.trim(),
+                    number: parseInt(numberElement.value),
+                    deformability: deformability,
+                    inVideo1: inVideo1,
+                    inVideo2: inVideo2,
+                    viewsInVideo1: viewsInVideo1,
+                    viewsInVideo2: viewsInVideo2,
+                    // Initialize view tracking
+                    currentViewVideo1: 0,
+                    currentViewVideo2: 0,
+                    // Add these view tracking properties
+                    completedViewsVideo1: new Set(),
+                    completedViewsVideo2: new Set()
+                });
+            }
+            
+            if (!valid || !anyObjectSelected) return;
+            
+            // Determine which objects need to be annotated for each video
+            videoData.video1.objectsToAnnotate = objectConfigs
+                .map((config, index) => ({ ...config, originalIndex: index }))
+                .filter(config => config.inVideo1);
+                
+            videoData.video2.objectsToAnnotate = objectConfigs
+                .map((config, index) => ({ ...config, originalIndex: index }))
+                .filter(config => config.inVideo2);
+            
+            // If one video has no objects, start with the other
+            if (videoData.video1.objectsToAnnotate.length === 0 && videoData.video2.objectsToAnnotate.length > 0) {
+                currentVideoIndex = 2;
+            } else {
+                currentVideoIndex = 1;
+            }
+            
+            // Reset indices and completion tracking
+            videoData.video1.currentObjectIndex = 0;
+            videoData.video2.currentObjectIndex = 0;
+            completedObjects.video1 = new Set();
+            completedObjects.video2 = new Set();
+            completedViews.video1 = {};
+            completedViews.video2 = {};
+            
+            // Initialize completedViews structure
+            videoData.video1.objectsToAnnotate.forEach((obj, idx) => {
+                completedViews.video1[idx] = new Set();
+            });
+            
+            videoData.video2.objectsToAnnotate.forEach((obj, idx) => {
+                completedViews.video2[idx] = new Set();
+            });
+            
+            // Send object configurations to server
+            fetch('/set_object_config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    object_configs: objectConfigs
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Create object progress indicators
+                updateObjectProgressIndicator();
+                
+                // Update UI for first object of first video
+                updateObjectDetailsUI();
+                
+                // Proceed to next step
+                showStep(3);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error: ' + error.message);
+            });
+        });
+
+        // Update object progress indicator
+        function updateObjectProgressIndicator() {
+                const progressContainer = document.getElementById('objectProgressIndicator');
+                progressContainer.innerHTML = '';
+            
+            // Get current video objects
+            const currentVideoObjects = currentVideoIndex === 1 
+                ? videoData.video1.objectsToAnnotate 
+                : videoData.video2.objectsToAnnotate;
+            
+            const currentCompletedObjects = currentVideoIndex === 1
+                ? completedObjects.video1
+                : completedObjects.video2;
+            
+            for (let i = 0; i < currentVideoObjects.length; i++) {
+                const badge = document.createElement('div');
+                const isActive = i === (currentVideoIndex === 1 ? videoData.video1.currentObjectIndex : videoData.video2.currentObjectIndex);
+                const isCompleted = currentCompletedObjects.has(i);
+                
+                badge.className = 'completion-badge';
+                if (isActive) badge.classList.add('active');
+                if (isCompleted) badge.classList.add('completed');
+                
+                badge.textContent = i + 1;
+                badge.id = 'objectBadge' + i;
+                    progressContainer.appendChild(badge);
+                }
+                
+            // Update video indicators
+            document.getElementById('currentVideoLabel').textContent = `Video ${currentVideoIndex}`;
+            document.getElementById('annotationVideoLabel').textContent = `Video ${currentVideoIndex}`;
+        }
+
+        // Update object details UI
+        function updateObjectDetailsUI() {
+            // Get current video objects
+            const currentVideoObjects = currentVideoIndex === 1 
+                ? videoData.video1.objectsToAnnotate 
+                : videoData.video2.objectsToAnnotate;
+            
+            const currentObjectIdx = currentVideoIndex === 1
+                ? videoData.video1.currentObjectIndex
+                : videoData.video2.currentObjectIndex;
+        
+            if (currentObjectIdx >= currentVideoObjects.length) {
+                // No more objects for this video
+                return;
+            }
+            
+            const objectConfig = currentVideoObjects[currentObjectIdx];
+               
+            // When showing each object for annotation, also show which view we're on
+            const totalViews = currentVideoIndex === 1 
+                ? objectConfig.viewsInVideo1 
+                : objectConfig.viewsInVideo2;
+
+            const currentView = currentVideoIndex === 1 
+                ? objectConfig.currentViewVideo1 + 1
+                : objectConfig.currentViewVideo2 + 1;
+
+            // Get current view number (1-based for display)
+            const currentViewIndexEl = document.getElementById('currentViewIndex');
+            const totalViewsEl = document.getElementById('totalViews');
+            
+            if (currentViewIndexEl && totalViewsEl) {
+                currentViewIndexEl.textContent = currentView;
+                totalViewsEl.textContent = totalViews;
+            }
+            
+            // Update object name display
+            document.getElementById('currentObjectName').textContent = 
+                `${objectConfig.name}_${objectConfig.number}`;
+            
+            // Update view counter display
+            document.getElementById('currentViewIndex').textContent = currentView;
+            document.getElementById('totalViews').textContent = totalViews;
+            
+            // Update frame slider
+            const frameCount = currentVideoIndex === 1 
+                ? videoData.video1.frameCount 
+                : videoData.video2.frameCount;
+            
+            const frameSlider = document.getElementById('frameSlider');
+            frameSlider.min = 0;
+            frameSlider.max = frameCount - 1;
+            frameSlider.value = 0;
+            
+            // Update frame display
+            updateFrameDisplay(0);
+        }
+        // Optionally, you can add this to reset the view count when generating object rows
+        function resetVideoSelectCheckboxes() {
+            document.querySelectorAll('.video-select').forEach(checkbox => {
+                checkbox.checked = false;
+                const videoNum = checkbox.dataset.video;
+                const objectIdx = checkbox.dataset.object;
+                const viewSelect = document.getElementById(`viewsVideo${videoNum}_${objectIdx}`);
+                viewSelect.disabled = true;
+                viewSelect.value = "1";
+            });
+        }
+
+
+        // Update frame display based on slider
+        function updateFrameDisplay(frameIdx) {
+            document.getElementById('currentFrameNum').textContent = frameIdx;
+            
+            const fps = currentVideoIndex === 1 ? videoData.video1.fps : videoData.video2.fps;
+            const timeInSeconds = (frameIdx / fps).toFixed(2);
+            document.getElementById('currentFrameTime').textContent = timeInSeconds;
+            
+            // Load frame preview
+            fetch(`/get_frame?session_id=${sessionId}&video_idx=${currentVideoIndex}&frame_idx=${frameIdx}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Display frame
+                document.getElementById('framePreview').src = data.frame_data;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error loading frame: ' + error.message);
+            });
+        }
+
+        // Frame slider event
+        document.getElementById('frameSlider').addEventListener('input', function() {
+            const frameIdx = parseInt(this.value);
+            updateFrameDisplay(frameIdx);
+        });
+
+        // Go back to step 1
+        document.getElementById('backToStep1').addEventListener('click', function() {
+            showStep(1);
+        });
+
+        // Go back to step 2
+        document.getElementById('backToStep2').addEventListener('click', function() {
+            showStep(2);
+        });
+
+        // Go back to step 3
+        document.getElementById('backToStep3').addEventListener('click', function() {
+            showStep(3);
+        });
+
+        // Proceed to annotation
+        // Set object frame
+        document.getElementById('goToAnnotation').addEventListener('click', function() {
+            const frameIdx = parseInt(document.getElementById('frameSlider').value);
+            const status = currentVideoIndex === 1 ? "video1" : "video2";
+            
+            // Get current object
+            const currentVideoObjects = currentVideoIndex === 1 
+                ? videoData.video1.objectsToAnnotate 
+                : videoData.video2.objectsToAnnotate;
+            
+            const currentObjectIdx = currentVideoIndex === 1
+                ? videoData.video1.currentObjectIndex
+                : videoData.video2.currentObjectIndex;
+            
+            const objectConfig = currentVideoObjects[currentObjectIdx];
+            
+            // Get current view for this object in this video
+            const currentView = currentVideoIndex === 1 
+                ? objectConfig.currentViewVideo1 
+                : objectConfig.currentViewVideo2;
+            
+            // Clear previous mask and points
+            maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+            points = [];
+            labels = [];
+            updatePointsDisplay();
+            
+            // Send object frame information to server with view info
+            fetch('/set_object_frame', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    video_idx: currentVideoIndex,
+                    obj_idx: currentObjectIdx,
+                    original_obj_idx: objectConfig.originalIndex,
+                    frame_idx: frameIdx,
+                    status: status,
+                    view_idx: currentView,
+                    total_views: currentVideoIndex === 1 ? objectConfig.viewsInVideo1 : objectConfig.viewsInVideo2,
+                    is_reannotation: sessionStorage.getItem('reannotationMode') === 'true'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Update current frame index for annotation
+                currentFrameIdx = frameIdx;
+                
+                // Set object label display with view information
+                const totalViews = currentVideoIndex === 1 
+                    ? objectConfig.viewsInVideo1 
+                    : objectConfig.viewsInVideo2;
+                
+                document.getElementById('currentObjectLabel').textContent = 
+                    `${objectConfig.name}_${objectConfig.number} (View ${currentView + 1}/${totalViews})`;
+                
+                // Load the frame for annotation
+                loadFrame(frameIdx);
+
+                // In the goToAnnotation function, before showStep(4)
+                // Update annotation view information
+                const annotationViewIndexEl = document.getElementById('annotationViewIndex');
+                const annotationTotalViewsEl = document.getElementById('annotationTotalViews');
+
+                if (annotationViewIndexEl && annotationTotalViewsEl) {
+                    annotationViewIndexEl.textContent = currentView + 1;
+                    annotationTotalViewsEl.textContent = totalViews;
+                }
+                
+                // Go to annotation step
+                showStep(4);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error: ' + error.message);
+            });
+        });
+
+        // Load frame for annotation
+        function loadFrame(frameIdx) {
+            fetch(`/get_frame?session_id=${sessionId}&video_idx=${currentVideoIndex}&frame_idx=${frameIdx}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Load the image onto canvas
+                const img = new Image();
+                img.onload = function() {
+                    // Set canvas dimensions
+                    canvasWidth = img.width;
+                    canvasHeight = img.height;
+                    
+                    // Get container dimensions
+                    const canvasContainer = document.querySelector('.canvas-container');
+                    const containerWidth = canvasContainer.clientWidth;
+                    
+                    // Set max display width (80% of container or 1200px, whichever is smaller)
+                    const maxDisplayWidth = Math.min(containerWidth, 800);
+                    
+                    // Calculate scale to fit within maxDisplayWidth while maintaining aspect ratio
+                    const scale = Math.min(1, maxDisplayWidth / canvasWidth);
+                    
+                    // Set display dimensions
+                    const displayWidth = canvasWidth * scale;
+                    const displayHeight = canvasHeight * scale;
+                    
+                    // Set actual canvas dimensions to the image size for proper rendering
+                    imageCanvas.width = canvasWidth;
+                    imageCanvas.height = canvasHeight;
+                    maskCanvas.width = canvasWidth;
+                    maskCanvas.height = canvasHeight;
+                    
+                    // Set display size with CSS
+                    imageCanvas.style.width = `${displayWidth}px`;
+                    imageCanvas.style.height = `${displayHeight}px`;
+                    maskCanvas.style.width = `${displayWidth}px`;
+                    maskCanvas.style.height = `${displayHeight}px`;
+                    
+                    // Update canvas container size
+                    canvasContainer.style.width = `${displayWidth}px`;
+                    canvasContainer.style.height = `${displayHeight}px`;
+                    
+                    // Draw the image
+                    imageCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+                    
+                    // Store the display scale for coordinate calculations
+                    window.canvasDisplayScale = scale;
+                    
+                    // Update points if any exist
+                    if (points.length > 0) {
+                        updatePointsDisplay();
+                    }
+                };
+                img.src = data.frame_data;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error loading frame: ' + error.message);
+            });
+        }
+
+        // Handle canvas clicks
+        imageCanvas.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            
+            // Get click position relative to canvas
+            const rect = imageCanvas.getBoundingClientRect();
+            const scaleX = imageCanvas.width / rect.width;
+            const scaleY = imageCanvas.height / rect.height;
+            
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+            
+            // Determine point type from mouse button (1 = left, 3 = right)
+            let label = 1;  // Positive point by default (left click)
+            if (e.button === 2) {  // Right click
+                label = 0;  // Negative point
+            }
+            
+            // Add the point
+            points.push([x, y]);
+            labels.push(label);
+            
+            // Update visual display
+            updatePointsDisplay();
+            
+            // Send points to server for processing
+            processPoints();
+        });
+
+        // Prevent context menu on right-click
+        imageCanvas.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+        });
+
+        // Update visual display of points
+        function updatePointsDisplay() {
+            const pointsContainer = document.getElementById('pointsContainer');
+            pointsContainer.innerHTML = '';
+            
+            // Get canvas scale for positioning
+            const rect = imageCanvas.getBoundingClientRect();
+            const scaleX = rect.width / imageCanvas.width;
+            const scaleY = rect.height / imageCanvas.height;
+            
+            // Add each point as a DOM element
+            points.forEach((point, index) => {
+                const pointElement = document.createElement('div');
+                pointElement.className = 'point ' + (labels[index] === 1 ? 'point-positive' : 'point-negative');
+                pointElement.style.left = (point[0] * scaleX) + 'px';
+                pointElement.style.top = (point[1] * scaleY) + 'px';
+                pointsContainer.appendChild(pointElement);
+            });
+        }
+
+        // Process points with SAM2
+        function processPoints() {
+            if (points.length === 0) return;
+            
+            // Show processing status
+            document.getElementById('processingStatus').textContent = 'Processing...';
+            document.getElementById('processingStatus').classList.remove('d-none');
+            
+            // Get current object index in video
+            const currentObjectIdx = currentVideoIndex === 1
+                ? videoData.video1.currentObjectIndex
+                : videoData.video2.currentObjectIndex;
+            
+            // Get current object configuration
+            const currentVideoObjects = currentVideoIndex === 1 
+                ? videoData.video1.objectsToAnnotate 
+                : videoData.video2.objectsToAnnotate;
+            
+            const objectConfig = currentVideoObjects[currentObjectIdx];
+            
+            fetch('/process_clicks', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    video_idx: currentVideoIndex,
+                    frame_idx: currentFrameIdx,
+                    obj_idx: currentObjectIdx,
+                    original_obj_idx: objectConfig.originalIndex,
+                    points: points,
+                    labels: labels
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Display the mask
+                const img = new Image();
+                img.onload = function() {
+                    maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+                    maskCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+                    
+                    document.getElementById('processingStatus').classList.add('d-none');
+                };
+                img.src = data.mask_img;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('processingStatus').textContent = 'Error: ' + error.message;
+                document.getElementById('processingStatus').classList.remove('d-none', 'alert-info');
+                document.getElementById('processingStatus').classList.add('alert-danger');
+            });
+        }
+
+        // Clear points button
+        document.getElementById('clearPoints').addEventListener('click', function() {
+            points = [];
+            labels = [];
+            updatePointsDisplay();
+            maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+            document.getElementById('processingStatus').classList.add('d-none');
+        });
+
+
+        // Modify the Done with Object button handler
+        document.getElementById('doneWithObject').addEventListener('click', function() {
+            // Get current object
+            const currentObjectIdx = currentVideoIndex === 1
+                ? videoData.video1.currentObjectIndex
+                : videoData.video2.currentObjectIndex;
+            
+            const currentVideoObjects = currentVideoIndex === 1 
+                ? videoData.video1.objectsToAnnotate 
+                : videoData.video2.objectsToAnnotate;
+            
+
+            const objectConfig = currentVideoObjects[currentObjectIdx];                
+            // Mark current view as completed
+            if (currentVideoIndex === 1) {
+                objectConfig.completedViewsVideo1.add(objectConfig.currentViewVideo1);
+            } else {
+                objectConfig.completedViewsVideo2.add(objectConfig.currentViewVideo2);
+            }
+            
+            // Get the total number of views for this object in this video
+            const totalViews = currentVideoIndex === 1 
+                ? objectConfig.viewsInVideo1 
+                : objectConfig.viewsInVideo2;
+            
+            // Check if all views for this object in this video are completed
+            const completedViews = currentVideoIndex === 1 
+                ? objectConfig.completedViewsVideo1.size 
+                : objectConfig.completedViewsVideo2.size;
+            
+            // Clear canvases
+            imageCtx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+            maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+            points = [];
+            labels = [];
+            updatePointsDisplay();
+            
+            if (completedViews < totalViews) {
+                // Move to the next view of the same object
+                if (currentVideoIndex === 1) {
+                    objectConfig.currentViewVideo1++;
+                } else {
+                    objectConfig.currentViewVideo2++;
+                }
+                
+                // Update UI for next view
+                updateObjectProgressIndicator();
+                updateObjectDetailsUI();
+                showStep(3); // Go back to frame selection for the next view
+            } else {
+                // All views of this object are completed, mark the object as completed
+                if (currentVideoIndex === 1) {
+                    completedObjects.video1.add(currentObjectIdx);
+                } else {
+                    completedObjects.video2.add(currentObjectIdx);
+                }
+                
+                // Reset view counters for this object
+                objectConfig.currentViewVideo1 = 0;
+                objectConfig.currentViewVideo2 = 0;
+                
+                // Check if all objects in current video are completed
+                const allCompleted = currentVideoIndex === 1
+                    ? completedObjects.video1.size >= videoData.video1.objectsToAnnotate.length
+                    : completedObjects.video2.size >= videoData.video2.objectsToAnnotate.length;
+                
+                if (allCompleted) {
+                    // Move to the next video or finish
+                    if (currentVideoIndex === 1 && videoData.video2.objectsToAnnotate.length > 0) {
+                        currentVideoIndex = 2;
+                        updateObjectProgressIndicator();
+                        updateObjectDetailsUI();
+                        showStep(3); // Go to frame selection for the first object in video 2
+                    } else {
+                        // We're done with all objects in all videos
+                        finishAnnotation();
+                    }
+                } else {
+                    // Move to the next object in the current video
+                    moveToNextObject();
+                }
+            }
+        });
+
+        // Function to move to the next object
+        function moveToNextObject() {
+            if (currentVideoIndex === 1) {
+                videoData.video1.currentObjectIndex = 
+                    (videoData.video1.currentObjectIndex + 1) % videoData.video1.objectsToAnnotate.length;
+                
+                // Find the next uncompleted object
+                while (completedObjects.video1.has(videoData.video1.currentObjectIndex) && 
+                    completedObjects.video1.size < videoData.video1.objectsToAnnotate.length) {
+                    videoData.video1.currentObjectIndex = 
+                        (videoData.video1.currentObjectIndex + 1) % videoData.video1.objectsToAnnotate.length;
+                }
+            } else {
+                videoData.video2.currentObjectIndex = 
+                    (videoData.video2.currentObjectIndex + 1) % videoData.video2.objectsToAnnotate.length;
+                
+                // Find the next uncompleted object
+                while (completedObjects.video2.has(videoData.video2.currentObjectIndex) && 
+                    completedObjects.video2.size < videoData.video2.objectsToAnnotate.length) {
+                    videoData.video2.currentObjectIndex = 
+                        (videoData.video2.currentObjectIndex + 1) % videoData.video2.objectsToAnnotate.length;
+                }
+            }
+            
+            // Update UI for next object
+            updateObjectProgressIndicator();
+            updateObjectDetailsUI();
+            showStep(3); // Go back to frame selection for the next object
+        }
+
+        // Function to populate the object review table
+        function populateObjectReview(objectsData) {
+            const reviewTable = document.getElementById('objectReviewTable');
+            reviewTable.innerHTML = '';
+            
+            // Get color map for visualization
+            const colorMap = [
+                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
+            ];
+            
+            // Adjust color 7 to be darker like in the visualization
+            colorMap[7] = '#3f3f3f';
+            
+            // Add a row for each object
+            objectsData.forEach((obj, index) => {
+                const row = document.createElement('tr');
+                row.dataset.objectIndex = index;
+                
+                // Color cell - display a color swatch
+                const colorCell = document.createElement('td');
+                const colorSwatch = document.createElement('div');
+                colorSwatch.style.width = '30px';
+                colorSwatch.style.height = '30px';
+                colorSwatch.style.backgroundColor = colorMap[index % 10];
+                colorSwatch.style.borderRadius = '4px';
+                colorCell.appendChild(colorSwatch);
+                
+                // Label cell
+                const labelCell = document.createElement('td');
+                labelCell.textContent = obj.label;
+                
+                // Appears in cell
+                const appearsCell = document.createElement('td');
+                let appearsText = [];
+                if (obj.in_video1) appearsText.push('Video 1');
+                if (obj.in_video2) appearsText.push('Video 2');
+                appearsCell.textContent = appearsText.join(', ');
+                
+                // Comments cell
+                const commentsCell = document.createElement('td');
+                const commentsInput = document.createElement('textarea');
+                commentsInput.className = 'form-control';
+                commentsInput.placeholder = 'Enter comments about any issues...';
+                commentsInput.rows = 2;
+                commentsInput.id = `comments_${index}`;
+                commentsCell.appendChild(commentsInput);
+                
+                // Is Good checkbox cell
+                const checkboxCell = document.createElement('td');
+                checkboxCell.style.textAlign = 'center';
+                checkboxCell.style.verticalAlign = 'middle';
+                
+                const checkboxWrapper = document.createElement('div');
+                checkboxWrapper.className = 'form-check d-flex justify-content-center';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'form-check-input object-good-check';
+                checkbox.id = `isGood_${index}`;
+                checkbox.addEventListener('change', updatePassButtonState);
+                
+                checkboxWrapper.appendChild(checkbox);
+                checkboxCell.appendChild(checkboxWrapper);
+                
+                // Add cells to row
+                row.appendChild(colorCell);
+                row.appendChild(labelCell);
+                row.appendChild(appearsCell);
+                row.appendChild(commentsCell);
+                row.appendChild(checkboxCell);
+                
+                // Add row to table
+                reviewTable.appendChild(row);
+            });
+            
+            // Initially update pass button state
+            updatePassButtonState();
+        }
+
+        // Function to update the Pass button state
+        function updatePassButtonState() {
+            const checkboxes = document.querySelectorAll('.object-good-check');
+            const passButton = document.getElementById('passAnnotation');
+            
+            let allChecked = true;
+            checkboxes.forEach(checkbox => {
+                if (!checkbox.checked) {
+                    allChecked = false;
+                }
+            });
+            
+            passButton.disabled = !allChecked;
+            
+            // Show/hide review status message
+            const reviewStatus = document.getElementById('reviewStatus');
+            if (!allChecked) {
+                reviewStatus.textContent = 'Please mark all objects as good before passing.';
+                reviewStatus.classList.remove('d-none');
+            } else {
+                reviewStatus.classList.add('d-none');
+            }
+        }
+
+
+        function finishAnnotation(isReannotation = false) {
+            // Check if we're in reannotation mode
+            if (sessionStorage.getItem('reannotationMode') === 'true') {
+                isReannotation = true;
+            }
+            
+            // Create a status div instead of using the undefined statusDiv variable
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'alert alert-info';
+            statusDiv.textContent = 'Annotation data saved for offline processing.';
+            document.getElementById('step4').appendChild(statusDiv);            
+            // Show processing status
+            document.getElementById('processingStatus').textContent = isReannotation ? 
+                'Updating annotations for selected objects...' : 
+                'Processing annotation data...';
+            document.getElementById('processingStatus').classList.remove('d-none', 'alert-danger');
+            document.getElementById('processingStatus').classList.add('alert-info');
+            
+            fetch('/finish_annotation', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    is_reannotation: isReannotation
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                if (isReannotation) {
+                    // Show success message for reannotation
+                    document.getElementById('processingStatus').textContent = 
+                        'Reannotation complete! You will be redirected back to the review page...';
+                    
+                    // Clear reannotation flags
+                    sessionStorage.removeItem('reannotationMode');
+                    localStorage.removeItem('reannotationSessionId');
+                    
+                    // Clean up memory from server
+                    fetch('/cleanup_session', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            session_id: sessionId
+                        })
+                    }).catch(error => {
+                        console.error('Error during cleanup:', error);
+                        // Non-critical error, so just log it
+                    });
+
+                    // Redirect back to review page
+                    setTimeout(() => {
+                        window.location.href = `/review`;
+                    }, 3000);
+                } else {
+                    // Create notification for user
+                    const resultDiv = document.createElement('div');
+                    resultDiv.className = 'alert alert-success mt-3';
+                    resultDiv.innerHTML = `
+                        <p><strong>Your annotations have been saved successfully!</strong></p>
+                        <p>The segmentation masks will be generated offline.</p>
+                        <p>You can now start a new annotation or close this window.</p>
+                    `;
+                    document.getElementById('step4').appendChild(resultDiv);
+                    
+                    // Add button to start over
+                    const newSessionBtn = document.createElement('button');
+                    newSessionBtn.className = 'btn btn-primary mt-3 me-2';
+                    newSessionBtn.textContent = 'Start New Annotation';
+                    newSessionBtn.addEventListener('click', function() {
+                        resetUIState();
+                    });
+                    document.getElementById('step4').appendChild(newSessionBtn);
+                    
+                    // Clean up memory from server
+                    fetch('/cleanup_session', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            session_id: sessionId
+                        })
+                    }).catch(error => {
+                        console.error('Error during cleanup:', error);
+                        // Non-critical error, so just log it
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                // Create a status div here too for error handling
+                const statusDiv = document.createElement('div');
+                statusDiv.className = 'alert alert-danger';
+                statusDiv.textContent = 'Error: ' + error.message;
+                document.getElementById('step4').appendChild(statusDiv);
+            });
+        }
+
+        // Complete process button
+        document.getElementById('finishProcess').addEventListener('click', function() {
+            if (confirm('Are you sure you want to finish? This will complete the entire process.')) {
+                const comments = {};
+                document.querySelectorAll('[id^="comments_"]').forEach((textarea, index) => {
+                    comments[index] = textarea.value;
+                });
+                
+                // Send to backend
+                fetch('/save_comments', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        session_id: sessionId,
+                        comments: comments
+                    })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to save comments');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // NOW proceed with cleanup (only after comments are saved)
+                    if (sessionId) {
+                        showAlert('uploadStatus', 'Cleaning up temporary files...', 'info');
+                        document.getElementById('uploadStatus').classList.remove('d-none');
+                        
+                        // Send cleanup request to server
+                        return fetch('/cleanup_session', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({session_id: sessionId})
+                        });
+                    }
+                })
+                .then(response => {
+                    if (response) return response.json();
+                })
+                .then(data => {
+                    if (data && data.error) {
+                        console.warn('Cleanup warning:', data.error);
+                    }
+                    // Reset UI state
+                    resetUIState();
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    resetUIState();
+                });
+            }
+        });
+
+        // Function to reset UI state
+        function resetUIState() {
+                // Reset everything for a new session
+                sessionId = null;
+            videoData = {
+                video1: {
+                    frameCount: 0,
+                    fps: 30,
+                    objectsToAnnotate: [],
+                    currentObjectIndex: 0
+                },
+                video2: {
+                    frameCount: 0,
+                    fps: 30,
+                    objectsToAnnotate: [],
+                    currentObjectIndex: 0
+                }
+            };
+            currentVideoIndex = 1;
+                currentStep = 1;
+                totalObjects = 0;
+            objectConfigs = [];
+                currentObjectIndex = 0;
+            completedObjects = {
+                video1: new Set(),
+                video2: new Set()
+            };
+                currentFrameIdx = 0;
+                points = [];
+                labels = [];
+                
+                // Clear canvas
+                imageCtx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+                maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+                
+                // Reset form
+                document.getElementById('uploadForm').reset();
+                document.getElementById('objectNum').value = 1;
+            document.getElementById('objectConfigContainer').innerHTML = '';
+                
+                // Go back to step 1
+                showStep(1);
+                
+            // Clear status after a short delay
+            setTimeout(() => {
+                document.getElementById('uploadStatus').classList.add('d-none');
+            }, 2000);
+            }
+
+        // Helper function to show alerts
+        function showAlert(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.classList.remove('d-none', 'alert-info', 'alert-success', 'alert-warning', 'alert-danger');
+            element.classList.add('alert-' + type);
+        }
+
+        // Adjust canvas and points when window resizes
+        window.addEventListener('resize', function() {
+            if (currentStep === 4) {
+                updatePointsDisplay();
+            }
+        });
+
+        //Add script for queueing  - offline process
+        document.getElementById('queueOfflineProcessing').addEventListener('click', function() {
+            if (confirm('Are you sure you want to queue this job for offline processing?')) {
+                fetch('/queue_offline_processing', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        session_id: sessionId
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Job has been queued for offline processing. You can check its status later.');
+                    } else {
+                        alert('Failed to queue job: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while queueing the job.');
+                });
+            }
+        });
+
+        // Check for URL parameters
+        document.addEventListener('DOMContentLoaded', function() {
+            // Clean GPU memory when the page loads
+            fetch('/cleanup_gpu_memory', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('GPU memory cleanup:', data.message);
+            })
+            .catch(error => {
+                console.error('Error during GPU cleanup:', error);
+            });
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const paramSessionId = urlParams.get('session');
+            const isReannotation = urlParams.get('mode') === 'reannotation';
+            
+            if (paramSessionId && isReannotation) {
+                console.log('Reannotation mode detected for session:', paramSessionId);
+                
+                // Store session ID and mark as reannotation mode
+                sessionId = paramSessionId;
+                sessionStorage.setItem('reannotationMode', 'true');
+                
+                // Show loading message
+                const loadingDiv = document.createElement('div');
+                loadingDiv.className = 'alert alert-info mt-3';
+                loadingDiv.textContent = 'Loading reannotation session...';
+                document.querySelector('.main-container').prepend(loadingDiv);
+                
+                // Fetch session info for reannotation
+                fetch(`/get_objects_data?session_id=${sessionId}`)
+                .then(response => response.json())
+                .then(data => {
+                    // Hide loading message
+                    loadingDiv.style.display = 'none';
+                    
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    debugger;
+                    // Load video data and frame counts
+                    videoData.video1.frameCount = data.video1_frame_count;
+                    videoData.video1.fps = data.video1_fps;
+                    videoData.video2.frameCount = data.video2_frame_count;
+                    videoData.video2.fps = data.video2_fps;
+                    
+                    // Set up object config from existing data
+                    objectConfigs = data.objects.map(obj => ({
+                        name: obj.label,
+                        number: obj.number, 
+                        deformability: obj.deformability,
+                        size: obj.size,
+                        inVideo1: obj.in_video1,
+                        inVideo2: obj.in_video2,
+                        originalIndex: obj.original_index || obj.original_obj_idx,
+                        // Add view tracking for reannotation
+                        viewsInVideo1: obj.views_in_video1 || 1,
+                        viewsInVideo2: obj.views_in_video2 || 1,
+                        currentViewVideo1: obj.current_view_video1 || 0,
+                        currentViewVideo2: obj.current_view_video2 || 0,
+                        completedViewsVideo1: new Set(),
+                        completedViewsVideo2: new Set()
+                    }));
+                    
+                    
+                    
+                    videoData.video1.objectsToAnnotate = objectConfigs
+                        .filter(obj => obj.inVideo1)
+                        .map(obj => ({ ...obj }));
+                    
+                    videoData.video2.objectsToAnnotate = objectConfigs
+                        .filter(obj => obj.inVideo2)
+                        .map(obj => ({ ...obj }));
+
+                    
+                    // Initialize current video to video 1 if it has objects to annotate
+                    if (videoData.video1.objectsToAnnotate.length > 0) {
+                        currentVideoIndex = 1;
+                    } else if (videoData.video2.objectsToAnnotate.length > 0) {
+                        currentVideoIndex = 2;
+                    }
+
+                    // Create object progress indicators
+                    updateObjectProgressIndicator();
+                    
+                    // Update UI for first object
+                    updateObjectDetailsUI();
+                    
+                    // Load first frame
+                    updateFrameDisplay(0);
+                    
+                    // Prepare for annotation
+                    showStep(3);
+                })
+                .catch(error => {
+                    console.error('Error preparing reannotation:', error);
+                    loadingDiv.textContent = 'Error loading reannotation: ' + error.message;
+                    loadingDiv.className = 'alert alert-danger mt-3';
+                });
+            }
+        });
+
+        // Offline propagation job functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const startOfflineJobBtn = document.getElementById('startOfflineJobBtn');
+            const confirmOfflineJobBtn = document.getElementById('confirmOfflineJobBtn');
+            const cancelOfflineJobBtn = document.getElementById('cancelOfflineJobBtn');
+            const offlineJobStatus = document.getElementById('offlineJobStatus');
+            const offlineJobProgress = document.getElementById('offlineJobProgress');
+            
+            // Initialize the modal
+            const offlineJobModal = new bootstrap.Modal(document.getElementById('offlineJobModal'));
+            
+            // Variable to track if job is running
+            let offlineJobRunning = false;
+            let jobCheckInterval = null;
+            
+            // Open modal when clicking the nav button
+            startOfflineJobBtn.addEventListener('click', function() {
+                if (offlineJobRunning) {
+                    // If job is already running, update UI to show status
+                    offlineJobStatus.textContent = 'Propagating objects... Click Cancel to stop.';
+                    offlineJobStatus.className = 'alert alert-info';
+                    offlineJobProgress.classList.remove('d-none');
+                    confirmOfflineJobBtn.classList.add('d-none');
+                    cancelOfflineJobBtn.classList.remove('d-none');
+                } else {
+                    // Reset UI to initial state
+                    offlineJobStatus.textContent = 'Ready to start offline propagation job. This will clean GPU memory and run all queued jobs.';
+                    offlineJobStatus.className = 'alert alert-info';
+                    offlineJobProgress.classList.add('d-none');
+                    confirmOfflineJobBtn.classList.remove('d-none');
+                    cancelOfflineJobBtn.classList.add('d-none');
+                }
+                offlineJobModal.show();
+            });
+            
+            // Start the job
+            confirmOfflineJobBtn.addEventListener('click', function() {
+                // Update UI
+                offlineJobStatus.textContent = 'Starting propagation job...';
+                confirmOfflineJobBtn.disabled = true;
+                
+                // Call backend to start job
+                fetch('/start_offline_propagation', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Job started successfully
+                        offlineJobRunning = true;
+                        startOfflineJobBtn.textContent = 'Propagating Objects';
+                        startOfflineJobBtn.classList.add('text-warning');
+                        
+                        offlineJobStatus.textContent = 'Propagating objects... Click Cancel to stop.';
+                        offlineJobProgress.classList.remove('d-none');
+                        confirmOfflineJobBtn.classList.add('d-none');
+                        cancelOfflineJobBtn.classList.remove('d-none');
+                        
+                        // Start checking job status periodically
+                        jobCheckInterval = setInterval(checkJobStatus, 5000);
+                    } else {
+                        // Error starting job
+                        offlineJobStatus.textContent = 'Error: ' + (data.error || 'Failed to start job');
+                        offlineJobStatus.className = 'alert alert-danger';
+                        confirmOfflineJobBtn.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    offlineJobStatus.textContent = 'Error: ' + error.message;
+                    offlineJobStatus.className = 'alert alert-danger';
+                    confirmOfflineJobBtn.disabled = false;
+                });
+            });
+            
+            // Cancel the job
+            cancelOfflineJobBtn.addEventListener('click', function() {
+                offlineJobStatus.textContent = 'Cancelling job...';
+                cancelOfflineJobBtn.disabled = true;
+                
+                // Call backend to cancel job
+                fetch('/cancel_offline_propagation', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Job cancelled successfully
+                        resetJobState();
+                        offlineJobStatus.textContent = 'Job cancelled successfully.';
+                        offlineJobStatus.className = 'alert alert-success';
+                    } else {
+                        // Error cancelling job
+                        offlineJobStatus.textContent = 'Error: ' + (data.error || 'Failed to cancel job');
+                        offlineJobStatus.className = 'alert alert-danger';
+                        cancelOfflineJobBtn.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    offlineJobStatus.textContent = 'Error: ' + error.message;
+                    offlineJobStatus.className = 'alert alert-danger';
+                    cancelOfflineJobBtn.disabled = false;
+                });
+            });
+            
+            // Function to check job status
+            function checkJobStatus() {
+                fetch('/check_offline_propagation_status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.running) {
+                        // Job is still running
+                        if (data.current_object) {
+                            offlineJobStatus.textContent = `Propagating: ${data.current_object} `;
+                        }
+                    } else {
+                        // Job is complete
+                        resetJobState();
+                        offlineJobStatus.textContent = 'All jobs completed successfully!';
+                        offlineJobStatus.className = 'alert alert-success';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking job status:', error);
+                });
+            }
+            
+            // Function to reset job state
+            function resetJobState() {
+                offlineJobRunning = false;
+                startOfflineJobBtn.textContent = 'Start Offline Job';
+                startOfflineJobBtn.classList.remove('text-warning');
+                offlineJobProgress.classList.add('d-none');
+                confirmOfflineJobBtn.classList.remove('d-none');
+                confirmOfflineJobBtn.disabled = false;
+                cancelOfflineJobBtn.classList.add('d-none');
+                cancelOfflineJobBtn.disabled = false;
+                
+                // Clear interval
+                if (jobCheckInterval) {
+                    clearInterval(jobCheckInterval);
+                    jobCheckInterval = null;
+                }
+            }
+            
+            // Check if job is already running when page loads
+            fetch('/check_offline_propagation_status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.running) {
+                    offlineJobRunning = true;
+                    startOfflineJobBtn.textContent = 'Propagating Objects';
+                    startOfflineJobBtn.classList.add('text-warning');
+                }
+            })
+            .catch(error => {
+                console.error('Error checking initial job status:', error);
+            });
+        });
+
+        // Update the event listener to match the new button structure
+        document.getElementById('downloadSpreadsheetButton').addEventListener('click', function() {
+            // Disable the button while processing
+            this.disabled = true;
+            const originalText = this.textContent;
+            this.textContent = 'Downloading...';
+            
+            // Call the API endpoint
+            fetch('/download_object_database', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Successfully downloaded object database');
+                    
+                    // If we're currently in a session, refresh the object list
+                    if (sessionId) {
+                        document.getElementById('generateObjectRows').click();
+                    }
+                } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error downloading database: ' + error.message);
+            })
+            .finally(() => {
+                // Re-enable the button
+                this.disabled = false;
+                this.textContent = originalText;
+            });
+        });
+    </script>
+</body>
+</html>            

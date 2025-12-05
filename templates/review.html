@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        
+        .main-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .session-card {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        
+        .session-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+        
+        .status-needs-review {
+            background-color: #f8d7da;
+            color: #842029;
+        }
+        
+        .status-reviewed {
+            background-color: #d1e7dd;
+            color: #0f5132;
+        }
+        
+        .status-needs-reannotation {
+            background-color: #fff3cd;
+            color: #664d03;
+        }
+        
+        .status-finished-reannotation {
+            background-color: #cfe2ff;
+            color: #084298;
+        }
+        
+        .navbar {
+            margin-bottom: 30px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .session-details {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .session-info {
+            flex-grow: 1;
+        }
+
+        .session-actions {
+            margin-left: 15px;
+        }
+
+        .timestamp {
+            font-size: 14px;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .btn-open {
+            padding: 6px 20px;
+        }
+
+        .filter-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .search-container {
+            max-width: 400px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <div class="container">
+            <a class="navbar-brand" href="/">Video Segmentation Tool</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">New Annotation</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/review">Review Sessions</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/review/upload">Upload for Review</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-container">
+        <h1 class="mb-4">Review Dashboard</h1>
+        
+        <div class="filter-container">
+            <div class="search-container">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="searchInput" placeholder="Search sessions...">
+                    <button class="btn btn-outline-secondary" type="button" id="searchButton">Search</button>
+                </div>
+            </div>
+            <div class="filter-buttons">
+                <button class="btn btn-outline-primary" id="filterAll">All</button>
+                <button class="btn btn-outline-warning" id="filterNeedsReview">Needs Review</button>
+                <button class="btn btn-outline-success" id="filterReviewed">Reviewed</button>
+            </div>
+        </div>
+
+        <div id="sessionContainer">
+            <!-- Sessions will be loaded here dynamically -->
+            <div class="d-flex justify-content-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading sessions...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // Function to fetch sessions from the server
+    async function fetchSessions() {
+        try {
+            const response = await fetch('/api/sessions');
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            const sessions = await response.json();
+            return sessions;
+        } catch (error) {
+            console.error('Error fetching sessions:', error);
+            document.getElementById('sessionContainer').innerHTML = 
+                `<div class="alert alert-danger">Error loading sessions: ${error.message}</div>`;
+            return [];
+        }
+    }
+
+    // Function to render session cards
+    function renderSessions(sessions) {
+        const container = document.getElementById('sessionContainer');
+        container.innerHTML = '';
+        
+        if (sessions.length === 0) {
+            container.innerHTML = '<div class="alert alert-info">No sessions found.</div>';
+            return;
+        }
+        
+        sessions.forEach(session => {
+            const card = document.createElement('div');
+            card.className = 'session-card';
+            card.dataset.id = session.id;
+            card.dataset.status = session.status;
+            
+            // Determine status badge
+            let statusBadge;
+            if (session.status === 'needs_review') {
+                statusBadge = '<span class="status-badge status-needs-review">Needs Review</span>';
+            } else if (session.needsReannotation) {
+                if (session.finish_reannotation) {
+                    statusBadge = '<span class="status-badge status-finished-reannotation">Finished Reannotation</span>';
+                } else {
+                    statusBadge = '<span class="status-badge status-needs-reannotation">Needs Reannotation</span>';
+                }
+            } else {
+                statusBadge = '<span class="status-badge status-reviewed">Reviewed - Good</span>';
+            }
+            
+            card.innerHTML = `
+                <div class="session-details">
+                    <div class="session-info">
+                        ${statusBadge}
+                        <h4>${session.id}</h4>
+                        <div class="timestamp">${session.date} at ${session.time}</div>
+                    </div>
+                    <div class="session-actions">
+                        <a href="/review/session/${session.id}" class="btn btn-primary btn-open">Open</a>
+                        <button class="btn btn-danger btn-sm btn-delete" data-id="${session.id}">Delete</button>
+                    </div>
+                </div>
+            `;
+            
+            container.appendChild(card);
+        });
+        
+        // Add event listeners for delete buttons
+        document.querySelectorAll('.btn-delete').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                const sessionId = this.dataset.id;
+                if (confirm(`Are you sure you want to delete session ${sessionId}?`)) {
+                    deleteSession(sessionId);
+                }
+            });
+        });
+    }
+
+    // Function to delete a session
+    async function deleteSession(sessionId) {
+        try {
+            const response = await fetch(`/api/sessions/${sessionId}`, {
+                method: 'DELETE'
+            });
+            
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to delete session');
+            }
+            
+            // Remove the session card from the UI
+            const card = document.querySelector(`.session-card[data-id="${sessionId}"]`);
+            if (card) {
+                card.remove();
+            }
+            
+        } catch (error) {
+            console.error('Error deleting session:', error);
+            alert(`Error deleting session: ${error.message}`);
+        }
+    }
+
+    // Filter functions
+    function filterSessions(status = 'all') {
+        const cards = document.querySelectorAll('.session-card');
+        
+        cards.forEach(card => {
+            if (status === 'all' || 
+                (status === 'needs_review' && card.dataset.status === 'needs_review') ||
+                (status === 'reviewed' && card.dataset.status === 'reviewed')) {
+                card.style.display = 'block';
+            } else {
+                card.style.display = 'none';
+            }
+        });
+        
+        // Update active filter button
+        document.querySelectorAll('.filter-buttons button').forEach(btn => {
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-outline-primary');
+        });
+        
+        if (status === 'all') {
+            document.getElementById('filterAll').classList.remove('btn-outline-primary');
+            document.getElementById('filterAll').classList.add('btn-primary');
+        } else if (status === 'needs_review') {
+            document.getElementById('filterNeedsReview').classList.remove('btn-outline-primary');
+            document.getElementById('filterNeedsReview').classList.add('btn-primary');
+        } else if (status === 'reviewed') {
+            document.getElementById('filterReviewed').classList.remove('btn-outline-primary');
+            document.getElementById('filterReviewed').classList.add('btn-primary');
+        }
+    }
+
+    // Search function
+    function searchSessions(query) {
+        const cards = document.querySelectorAll('.session-card');
+        const searchTerm = query.toLowerCase().trim();
+        
+        cards.forEach(card => {
+            const sessionId = card.dataset.id.toLowerCase();
+            if (sessionId.includes(searchTerm)) {
+                card.style.display = 'block';
+            } else {
+                card.style.display = 'none';
+            }
+        });
+    }
+
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+                const cleanupResponse = await fetch('/cleanup_gpu_memory', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                const cleanupData = await cleanupResponse.json();
+            console.log('GPU memory cleanup:', cleanupData.message);
+        } catch (error) {
+            console.error('Error during GPU cleanup:', error);
+        }
+        // Show loading indicator
+        document.getElementById('sessionContainer').innerHTML = `            <div class="d-flex justify-content-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading sessions...</span>
+                </div>
+            </div>
+        `;
+        
+        // Fetch and render sessions
+        const sessions = await fetchSessions();
+        renderSessions(sessions);
+        
+        // Set up event listeners for filters
+        document.getElementById('filterAll').addEventListener('click', () => filterSessions('all'));
+        document.getElementById('filterNeedsReview').addEventListener('click', () => filterSessions('needs_review'));
+        document.getElementById('filterReviewed').addEventListener('click', () => filterSessions('reviewed'));
+        
+        // Set up search functionality
+        document.getElementById('searchButton').addEventListener('click', () => {
+            const query = document.getElementById('searchInput').value;
+            searchSessions(query);
+        });
+        
+        document.getElementById('searchInput').addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') {
+                const query = e.target.value;
+                searchSessions(query);
+            }
+        });
+    });
+</script>
+</body>
+</html>
