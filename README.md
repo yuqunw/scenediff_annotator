@@ -14,10 +14,7 @@ The SceneDiff Annotator is built on top of [SAM2](https://github.com/facebookres
 - **Review & Refine**: Visualize annotated videos, refine annotations, and verify results
 
 ### Demo
-
-<video src="videos/annotation_visualization.mov" controls width="100%">
-  Your browser does not support the video tag. <a href="videos/annotation_visualization.mov">Download the demo video</a>.
-</video>
+https://github.com/user-attachments/assets/1779894f-f843-4e9b-a651-3fcb0ae43166
 
 *Watch the video above to see the annotation tool in action.*
 
